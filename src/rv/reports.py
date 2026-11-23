@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 
 from rv import plots
-from rv.data import INDEX, SYMBOLS, load
+from rv.data import INDEX, SYMBOLS, load, load_table
+from rv.forecast import forecasts, realised_forward, scoreboard
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
@@ -158,7 +159,66 @@ def report_estimators(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"rolling": report_rolling, "estimators": report_estimators}
+SPLIT = "2020-01-01"
+
+
+def report_forecast(out_dir: Path) -> dict:
+    """Which estimator predicts the next month's volatility best, out of sample (2020 onwards)."""
+    board = scoreboard(load_table(), SPLIT)
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    vals = board.to_numpy()
+    cmap = plt.matplotlib.colors.LinearSegmentedColormap.from_list("blue", plots.BLUE_RAMP)
+    ax.imshow(vals, cmap=cmap, vmin=1.0, vmax=max(2.0, vals.max()), aspect="auto")
+    for (i, j), v in np.ndenumerate(vals):
+        ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=9,
+                color="white" if v > 1.5 else plots.TEXT)
+    ax.set_xticks(range(board.shape[1]), board.columns)
+    ax.set_yticks(range(board.shape[0]), board.index)
+    ax.tick_params(length=0)
+    ax.grid(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_visible(False)
+    ax.set_title("Forecast error vs the best estimator, 2020–2026 (1.00 = best)")
+    plots.save(fig, out_dir, "forecast_scoreboard")
+
+    r = log_returns(load("adj_close", [INDEX])[INDEX])
+    fc = forecasts(r, SPLIT, _ohlc(INDEX))
+    real = realised_forward(r)
+    span = slice("2020-01-01", "2020-12-31")
+    shown = {"realised next month": real[span] * 100}
+    colors = {"realised next month": plots.TEXT, "GARCH": plots.ESTIMATOR_COLORS["GARCH"],
+              "20-day rolling": plots.MUTED}
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for name in ("20-day rolling", "GARCH"):
+        shown[name] = fc[name][span] * 100
+    for name, v in shown.items():
+        ax.plot(v.index, v, color=colors[name], lw=2.6 if name.startswith("realised") else 2)
+    _label_ends(ax, shown, colors)
+    ax.set_title("Every forecast missed the start of the 2020 crash, then over-shot the calm")
+    ax.set_ylabel("annualised volatility, %")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    plots.save(fig, out_dir, "forecast_2020")
+
+    wins = {}
+    table = load_table()
+    for sym in table["adj_close"].columns:
+        rs = log_returns(table["adj_close"][sym].dropna())
+        d = forecasts(rs, SPLIT, _ohlc(sym)).join(realised_forward(rs).rename("real")).dropna()
+        d = d.loc[SPLIT:]
+        loss = pd.DataFrame({c: (d.real / d[c]) ** 2 - np.log((d.real / d[c]) ** 2) - 1
+                             for c in d.columns if c != "real"})
+        yearly = loss.groupby(loss.index.year).mean()
+        for c in yearly.columns.drop("GARCH"):
+            wins.setdefault(c, []).extend((yearly["GARCH"] < yearly[c]).tolist())
+    return {
+        "average rank order": list(board.index),
+        "scoreboard": board.round(2).to_dict("index"),
+        "GARCH wins (symbol-years)": {c: f"{sum(w)}/{len(w)}" for c, w in wins.items()},
+        "test months (independent)": f"~{len(real.loc[SPLIT:].dropna()) // 21} per symbol",
+    }
+
+
+REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast}
 
 
 def main(argv: list[str] | None = None) -> int:

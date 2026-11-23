@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from rv import plots
+from rv.forecast import scoreboard
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, rolling_vol, yang_zhang
 
@@ -92,6 +93,24 @@ def estimators_figure(table: pd.DataFrame) -> go.Figure:
     return _layout(fig, "annualised volatility, %")
 
 
+def forecast_figure(table: pd.DataFrame, train_end="2020-01-01") -> go.Figure:
+    """Out-of-sample forecast scoreboard: QLIKE relative to each symbol's best estimator."""
+    board = scoreboard(table, train_end)
+    fig = go.Figure(go.Heatmap(
+        z=board.to_numpy(), x=list(board.columns), y=list(board.index),
+        text=board.round(2).to_numpy(), texttemplate="%{text:.2f}", showscale=False,
+        colorscale=[[i / (len(plots.BLUE_RAMP) - 1), c] for i, c in enumerate(plots.BLUE_RAMP)],
+        zmin=1.0, zmax=max(2.0, float(board.max().max())),
+        hovertemplate="%{y} on %{x}: %{z:.2f}× the best error<extra></extra>",
+    ))
+    fig.update_layout(
+        paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE, height=420,
+        font=dict(family="Inter, system-ui, sans-serif", color=plots.TEXT_2, size=13),
+        margin=dict(l=140, r=24, t=24, b=40), yaxis=dict(autorange="reversed"),
+    )
+    return fig
+
+
 SECTIONS = [
     ("Rolling volatility",
      "Standard deviation of the last N daily returns, annualised. Short windows react fast but are "
@@ -103,6 +122,11 @@ SECTIONS = [
      "adds a pull back to the stock's long-run level. Yang-Zhang uses each day's open, high, low "
      "and close, including the overnight gap that pure high/low estimators miss.",
      estimators_figure),
+    ("Which estimator forecasts best?",
+     "Each estimator predicts the next 21 trading days' volatility every day. Models are fitted on "
+     "2013–2019 only and scored on 2020 onwards with QLIKE, the standard loss for volatility "
+     "forecasts, which punishes under-forecasting risk hardest. 1.00 = best for that symbol.",
+     forecast_figure),
 ]
 
 PAGE = """<!doctype html>
@@ -140,7 +164,7 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {{
     const [x0, x1] = (gd.layout.xaxis.range || []).map(String);
     let lo = Infinity, hi = -Infinity;
     gd.data.forEach((t) => {{
-      if (t.visible === false) return;
+      if (t.visible === false || t.type !== "scatter") return;
       for (let i = 0; i < t.x.length; i++) {{
         if (x0 && (t.x[i] < x0.slice(0, 10) || t.x[i] > x1.slice(0, 10))) continue;
         lo = Math.min(lo, t.y[i]); hi = Math.max(hi, t.y[i]);
@@ -152,6 +176,7 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {{
     Plotly.relayout(gd, {{"yaxis.range": [Math.max(0, lo - pad), hi + pad]}})
       .then(() => {{ busy = false; }});
   }};
+  if (!gd.data.some((t) => t.type === "scatter")) return;
   gd.on("plotly_relayout", (e) => {{ if (!("yaxis.range" in e)) fit(); }});
   gd.on("plotly_update", fit);
   fit();

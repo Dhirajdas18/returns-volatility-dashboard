@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rv.site import build_html, estimators_figure, rolling_figure
+from rv.site import build_html, estimators_figure, forecast_figure, rolling_figure
 
 
 def _table():
@@ -39,3 +39,9 @@ def test_build_html_is_one_page_loading_plotly_once():
     assert html.startswith("<!doctype html>")
     assert html.count("cdn.plot.ly") == 1
     assert "<title>" in html
+
+
+def test_forecast_figure_is_one_heatmap_symbols_by_estimators():
+    fig = forecast_figure(_table(), train_end="2016-06-01")
+    assert len(fig.data) == 1 and fig.data[0].type == "heatmap"
+    assert list(fig.data[0].x) == ["ITC", "NIFTY"]

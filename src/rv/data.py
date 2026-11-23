@@ -37,6 +37,19 @@ def missing_symbols(table: pd.DataFrame) -> list[str]:
     return [str(c) for c in adj.columns if adj[c].isna().all()]
 
 
+def load_table(symbols: list[str] | None = None, path: Path = DATA_PATH) -> pd.DataFrame:
+    """The whole (field, symbol) table, limited to `symbols` (default: the stocks + NIFTY)."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Run `uv run python scripts/fetch_data.py` first."
+        )
+    keep = symbols or [INDEX] + SYMBOLS
+    table = pd.read_parquet(path)
+    table = table.loc[:, table.columns.get_level_values("symbol").isin(keep)]
+    return table.reindex(columns=keep, level="symbol").sort_index()
+
+
 def load(field: str, symbols: list[str] | None = None, path: Path = DATA_PATH) -> pd.DataFrame:
     """One field as a wide date x symbol frame.
 

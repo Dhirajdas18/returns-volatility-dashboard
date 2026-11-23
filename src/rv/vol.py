@@ -58,6 +58,28 @@ class GarchFit:
         var = lr_var + self.persistence**k * (var1 - lr_var)
         return pd.Series(np.sqrt(var * TRADING_DAYS) / 100, index=k + 1, name="vol")
 
+    def horizon_vol(self, horizon: int) -> pd.Series:
+        """Annualised vol expected over the next `horizon` days, made at each day's close."""
+        p = self.persistence
+        lr_var = self.omega / (1 - p)
+        var1 = (self.vol * 100) ** 2 / TRADING_DAYS
+        avg = lr_var + (var1 - lr_var) * (1 - p**horizon) / ((1 - p) * horizon)
+        return np.sqrt(avg * TRADING_DAYS) / 100
+
+    def apply(self, returns: pd.Series) -> "GarchFit":
+        """Run these fitted parameters over `returns` (e.g. a later test period) without refitting.
+
+        Starts from the long-run variance; each day's forecast uses only returns up to that day.
+        """
+        pct = (returns * 100).to_numpy()
+        var = np.empty(len(pct))
+        v = self.omega / (1 - self.persistence)
+        for t, x in enumerate(pct):
+            v = self.omega + self.alpha * x**2 + self.beta * v
+            var[t] = v
+        vol = pd.Series(np.sqrt(var * TRADING_DAYS) / 100, index=returns.index, name=returns.name)
+        return GarchFit(self.omega, self.alpha, self.beta, vol)
+
 
 def garch_fit(returns: pd.Series) -> GarchFit:
     """Fit GARCH(1,1) with zero mean and normal errors by maximum likelihood (`arch` package)."""

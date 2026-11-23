@@ -13,7 +13,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 
 - [x] Rolling volatility across windows, with the window-length trade-off measured
 - [x] EWMA, GARCH(1,1) and range estimators (Parkinson, Garman-Klass, Yang-Zhang)
-- [ ] Out-of-sample volatility forecast comparison (RMSE, QLIKE)
+- [x] Out-of-sample volatility forecast comparison (QLIKE, RMSE)
 - [ ] Implied (India VIX) vs realised volatility and the variance risk premium
 - [ ] Risk-adjusted returns: Sharpe, Sortino, Calmar, rolling Sharpe, monthly heatmap
 - [ ] Rolling beta and correlation, volatility regimes
@@ -53,7 +53,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
   for the next day, 72% a month out, 46% three months out and 26% after six months. Shocks fade much
   faster in INFY and ITC (half-life about 4–5 days) than in NIFTY or HDFCBANK (25–30 days).
 - Parameters here are fitted on the whole history, so this section describes behaviour; forecasting
-  skill is tested out of sample in the next section.
+  skill is tested out of sample in section 3.
 
 <a href="docs/img/range_vs_close.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/range_vs_close.png"><img src="docs/img/range_vs_close.gif" alt="Close-to-close vs Garman-Klass vs Yang-Zhang volatility for six NSE series" width="720"></picture></a>
 
@@ -64,12 +64,35 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 - **Yang-Zhang** adds the overnight gap back and lands within about ±10% of close-to-close on every
   series, keeping most of the noise reduction.
 
+### 3. Out of sample, GARCH and Yang-Zhang forecast best; a 20-day window is among the worst
+
+<table><tr>
+<td><a href="docs/img/forecast_scoreboard.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/forecast_scoreboard.png"><img src="docs/img/forecast_scoreboard.gif" alt="Heatmap of out-of-sample QLIKE by estimator and symbol, 2020-2026"></picture></a></td>
+<td><a href="docs/img/forecast_2020.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/forecast_2020.png"><img src="docs/img/forecast_2020.gif" alt="NIFTY 2020: realised next-month volatility vs GARCH and 20-day forecasts"></picture></a></td>
+</tr></table>
+
+Every day each estimator forecasts the next 21 trading days' volatility. GARCH is fitted on 2013–2019
+only and then run forward without refitting; scoring covers 2020–2026 (about 80 independent months per
+symbol). The score is QLIKE, the standard loss for volatility forecasts, which punishes under-forecasting
+risk more than over-forecasting.
+
+- **GARCH ranks first on average and Yang-Zhang second.** GARCH beat EWMA in 28 of 42 symbol-years and the
+  20-day window in 32 of 42, but tied Yang-Zhang (21 of 42), so there is no clear winner between those two.
+- **The 20-day window ranks last** on average (up to 2.2× the best error, for ITC): it reacts fast but its
+  noise costs more than its speed gains. A slow 252-day window does surprisingly well for stocks whose
+  shocks fade within days (INFY, ITC), because next month usually looks like the long run.
+- **At a 5-day horizon the field tightens:** Yang-Zhang, GARCH and EWMA all land within 10% of the best,
+  while the 20-day window is 27% worse on average.
+- **Nothing forecast the 2020 crash.** Every estimator was still at 15% when NIFTY's next month delivered
+  over 80%. In 2020 alone the fast 20-day window scored best; once the calm returned, all of them stayed
+  too high for weeks. Forecasts describe risk, not surprises; a margin of safety is still needed.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py   # Yahoo Finance -> data/prices.parquet
-uv run rv-report rolling              # or: estimators. Charts -> out/, numbers printed
+uv run rv-report rolling              # or: estimators, forecast. Charts -> out/, numbers printed
 uv run python scripts/build_site.py   # dashboard -> site/index.html
 uv run pytest
 ```
@@ -79,6 +102,7 @@ uv run pytest
 - `src/rv/data.py`: Yahoo OHLC + adjusted closes in one (field, symbol) table; flags suspicious
   adjusted-price drops.
 - `src/rv/vol.py`: volatility estimators, all annualised.
+- `src/rv/forecast.py`: out-of-sample forecast comparison with no look-ahead (tested).
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
 - `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for
