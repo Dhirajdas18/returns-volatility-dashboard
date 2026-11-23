@@ -7,7 +7,7 @@ from rv.site import (
     forecast_figure,
     implied_figure,
     monthly_figure,
-    perf_figure,
+    perf_table,
     relate_figure,
     rolling_figure,
     target_figure,
@@ -47,7 +47,7 @@ def test_estimators_figure_has_four_estimators_per_symbol():
 def test_build_html_is_one_page_loading_plotly_once():
     html = build_html(_table())
     assert html.startswith("<!doctype html>")
-    assert html.count("cdn.plot.ly") == 1
+    assert html.count('src="https://cdn.plot.ly') == 1
     assert "<title>" in html
 
 
@@ -76,10 +76,15 @@ def test_build_html_keeps_vix_out_of_the_stock_menus():
     assert html.count('"label":"INDIAVIX"') == 0
 
 
-def test_perf_figure_is_a_table_row_per_symbol():
-    fig = perf_figure(_table())
-    assert fig.data[0].type == "table"
-    assert list(fig.data[0].cells.values[0]) == ["ITC", "NIFTY"]
+def test_perf_table_is_html_with_a_row_per_symbol():
+    html = perf_table(_table())
+    assert html.count("<tr>") == 3  # header + 2 symbols
+    assert '<th scope="row">ITC</th>' in html and '<th scope="row">NIFTY</th>' in html
+
+
+def test_build_html_has_nav_links_matching_section_ids():
+    html = build_html(_table())
+    assert 'href="#rolling-volatility"' in html and 'id="rolling-volatility"' in html
 
 
 def test_monthly_figure_one_heatmap_per_symbol_with_dropdown():

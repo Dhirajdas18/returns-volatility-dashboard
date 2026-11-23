@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Volatility measurement and out-of-sample forecasting for NSE large caps and the NIFTY 50.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="$surface" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="$d_surface" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://cdn.plot.ly" crossorigin>
+<title>Returns &amp; Volatility</title>
+<link rel="icon" href="$icon">
+<style>
+  :root {
+    --surface: $surface; --surface-2: #f3f2ee; --text: $text; --text-2: $text2;
+    --grid: $grid; --accent: $accent;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: $d_surface; --surface-2: #222220; --text: $d_text; --text-2: $d_text2;
+      --grid: $d_grid; --accent: $d_accent;
+    }
+  }
+  * { box-sizing: border-box; }
+  :root { color-scheme: light dark; }
+  body { touch-action: manipulation; }
+  .skip { position: absolute; left: 16px; top: -48px; padding: 8px 12px; background: var(--text);
+          color: var(--surface); border-radius: 4px; z-index: 20; }
+  .skip:focus { top: 8px; }
+  html { scroll-padding-top: 64px; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+  body { margin: 0; background: var(--surface); color: var(--text);
+         font: 16px/1.55 $font; -webkit-font-smoothing: antialiased; }
+  ::selection { background: var(--accent); color: var(--surface); }
+  a { color: inherit; text-decoration-color: var(--grid); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: currentColor; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+  header { padding: 40px 0 24px; }
+  h1 { font-size: 2rem; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
+  .lede { font-size: 1.125rem; color: var(--text-2); max-width: 62ch; margin: 0 0 16px; }
+  .meta { font-size: 0.875rem; color: var(--text-2); margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 92%, transparent);
+        backdrop-filter: saturate(1.2) blur(8px); border-bottom: 1px solid var(--grid); }
+  nav ul { list-style: none; margin: 0 auto; padding: 0 16px; max-width: 1040px; display: flex; gap: 4px;
+           overflow-x: auto; scrollbar-width: none; }
+  nav ul::-webkit-scrollbar { display: none; }
+  nav a { display: block; padding: 12px 10px; font-size: 0.875rem; color: var(--text-2);
+          text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; }
+  nav a:hover { color: var(--text); }
+  nav a[aria-current="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  section { padding: 40px 0 8px; border-top: 1px solid var(--grid); }
+  section:first-of-type { border-top: 0; }
+  h2 { font-size: 1.25rem; line-height: 1.3; margin: 0 0 8px; text-wrap: balance; }
+  section > p { color: var(--text-2); max-width: 70ch; margin: 0 0 12px; }
+  .table-scroll { overflow-x: auto; margin: 8px 0 24px; }
+  table.data { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.875rem;
+               font-variant-numeric: tabular-nums; }
+  table.data th, table.data td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--grid);
+                                 white-space: nowrap; }
+  table.data th:first-child, table.data td:first-child { text-align: left; position: sticky; left: 0;
+                                                         background: var(--surface); }
+  table.data thead th { color: var(--text-2); font-weight: 500; }
+  table.data td { color: var(--text); }
+  footer { border-top: 1px solid var(--grid); margin-top: 32px; padding: 24px 0 48px;
+           font-size: 0.875rem; color: var(--text-2); }
+  footer p { margin: 0 0 6px; max-width: 75ch; }
+  .js-plotly-plot .plotly .modebar { opacity: 0.5; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the charts</a>
+<div class="wrap">
+<header>
+<h1>Returns &amp; Volatility</h1>
+<p class="lede">Volatility measurement and forecasting for five NSE large caps and the NIFTY 50, on daily
+data since 2013. Every forecast is scored out of sample.</p>
+<p class="meta"><span>Updated $updated</span><span>Data: Yahoo Finance</span>
+<a href="$repo">Code and findings on GitHub</a></p>
+</header>
+</div>
+<nav aria-label="Sections"><ul>
+$nav
+</ul></nav>
+<main id="main" class="wrap">
+$sections
+</main>
+<footer class="wrap">
+<p>Rebuilt every week by GitHub Actions from fresh prices. Pick a symbol from each chart's menu; drag to
+zoom, double-click to reset.</p>
+<p>Sharpe ratios use an assumed 6.5% risk-free rate; volatility targeting assumes a 0.1% cost per unit
+traded. For research and education, not investment advice.</p>
+</footer>
+<script>
+const DARK = $dark;
+const DARK_LINES = $dark_lines;
+const media = matchMedia("(prefers-color-scheme: dark)");
+const swap = (c, line) => {
+  if (typeof c !== "string" || !media.matches) return c;
+  const k = c.toLowerCase();
+  return (line && DARK_LINES[k]) || DARK[k] || c;
+};
+const deepMap = (o, line = false) => Array.isArray(o) ? o.map((v) => deepMap(v, line))
+  : o && typeof o === "object"
+    ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, deepMap(v, line || k === "line")]))
+    : swap(o, line);
+
+document.querySelectorAll(".plotly-graph-div").forEach((gd) => {
+  const original = { data: JSON.parse(JSON.stringify(gd.data)), layout: JSON.parse(JSON.stringify(gd.layout)) };
+  const theme = () => {
+    const layout = deepMap(original.layout);
+    layout.xaxis = Object.assign({}, layout.xaxis, { range: gd.layout.xaxis && gd.layout.xaxis.range });
+    const visible = gd.data.map((t) => t.visible);
+    const data = deepMap(original.data).map((t, i) => Object.assign(t, { visible: visible[i] }));
+    return Plotly.react(gd, data, layout);
+  };
+  media.addEventListener("change", theme);
+
+  // Fit the y-axis to the visible traces and date range (Plotly keeps the full range).
+  if (!gd.data.some((t) => t.type === "scatter")) { if (media.matches) theme(); return; }
+  let busy = false;
+  const fit = () => {
+    if (busy) return;
+    const [x0, x1] = (gd.layout.xaxis.range || []).map(String);
+    let lo = Infinity, hi = -Infinity;
+    gd.data.forEach((t) => {
+      if (t.visible === false || t.type !== "scatter") return;
+      for (let i = 0; i < t.x.length; i++) {
+        if (x0 && (t.x[i] < x0.slice(0, 10) || t.x[i] > x1.slice(0, 10))) continue;
+        lo = Math.min(lo, t.y[i]); hi = Math.max(hi, t.y[i]);
+      }
+    });
+    if (!isFinite(lo)) return;
+    const pad = (hi - lo) * 0.08 || 1;
+    busy = true;
+    Plotly.relayout(gd, {"yaxis.range": [Math.max(0, lo - pad), hi + pad]})
+      .then(() => { busy = false; });
+  };
+  // Phones: legend below the plot so it can't collide with the symbol menu and zoom buttons.
+  const narrow = matchMedia("(max-width: 640px)");
+  const place = () => Plotly.relayout(gd, narrow.matches
+    ? { "legend.y": -0.12, "legend.yanchor": "top", "margin.b": 96 }
+    : { "legend.y": original.layout.legend.y, "legend.yanchor": "bottom", "margin.b": 40 });
+  narrow.addEventListener("change", place);
+  if (narrow.matches) place();
+  gd.on("plotly_relayout", (e) => { if (!("yaxis.range" in e)) fit(); });
+  gd.on("plotly_update", fit);
+  (media.matches ? theme() : Promise.resolve()).then(fit);
+});
+
+// Highlight the section in view in the nav.
+const links = [...document.querySelectorAll("nav a")];
+const spy = new IntersectionObserver((entries) => {
+  entries.forEach((e) => {
+    if (!e.isIntersecting) return;
+    links.forEach((a) => {
+      const on = a.hash === "#" + e.target.id;
+      a.setAttribute("aria-current", on ? "true" : "false");
+      if (on) a.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  });
+}, { rootMargin: "-30% 0px -65% 0px" });
+document.querySelectorAll("main section").forEach((s) => spy.observe(s));
+</script>
+</body>
+</html>

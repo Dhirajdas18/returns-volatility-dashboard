@@ -34,6 +34,32 @@ ESTIMATOR_COLORS = {
 BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
 
+# Dark mode: the same hues stepped for a dark surface (reference palette's dark column).
+DARK = {
+    SURFACE: "#1a1a19",
+    TEXT: "#f0efec",
+    TEXT_2: "#c3c2b7",
+    GRID: "#2e2d2b",
+    "#f1f0ec": "#2e2d2b",  # diverging midpoint
+    "white": "#242422",
+    SERIES[0]: "#3987e5",
+    SERIES[1]: "#d95926",
+    SERIES[2]: "#199e70",
+    SERIES[3]: "#c98500",
+    SERIES[4]: "#d55181",
+    SERIES[5]: "#0ca30c",
+    SERIES[6]: "#9085e9",
+    SERIES[7]: "#e66767",
+}
+# Line colours only: on dark, longer rolling windows get lighter (still ordered by length).
+# Kept out of DARK so heatmap colour scales built from the same ramp stay in order.
+DARK_LINES = {
+    BLUE_RAMP[2]: "#256abf",
+    BLUE_RAMP[4]: "#6da7ec",
+    BLUE_RAMP[6]: "#cde2fb",
+}
+
+
 def style() -> None:
     plt.rcParams.update(
         {
