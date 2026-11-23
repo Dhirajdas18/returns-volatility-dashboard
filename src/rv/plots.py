@@ -6,6 +6,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
 SURFACE = "#fcfcfb"
 TEXT = "#0b0b0b"
@@ -103,8 +104,10 @@ def label_line_end(ax, x, y, text: str, color: str) -> None:
     )
 
 
-# Boomerang reveal for README GIFs: data sweeps in left to right, holds long enough to read,
-# sweeps back out faster, short pause, loop. Strong ease-out both ways (never ease-in).
+# Boomerang growth for README GIFs: every data element grows the way the data does (lines draw
+# along their path, bars rise from their baseline, points appear in order, ranges extend from their
+# start), holds long enough to read, shrinks back faster, short pause, loop. Strong ease-out both
+# ways (never ease-in). Axes, grids and reference lines stay still; labels fade in at the end.
 FPS = 25
 IN_FRAMES = 35  # 1.4 s
 OUT_FRAMES = 20  # 0.8 s
@@ -148,33 +151,114 @@ def _frame(fig, bbox):
     return Image.open(buf).convert("RGB")
 
 
-def _save_gif(fig, path: Path) -> None:
-    from matplotlib.transforms import Bbox, TransformedBbox
-    from PIL import Image
+def _grow_line(line):
+    """Draw a data line along its own path, with an interpolated tip for smooth motion."""
+    x = np.asarray(line.get_xdata(orig=False), dtype=float)
+    y = np.asarray(line.get_ydata(orig=False), dtype=float)
+    n = len(x)
+    if line.get_linestyle() in ("None", "", " "):  # markers only: points appear in order
+        return lambda p: line.set_data(x[: int(round(p * n))], y[: int(round(p * n))])
 
-    # Crop every frame to the finished chart's tight box, same as the PNG (stable frame size).
-    bbox = fig.get_tightbbox(fig.canvas.get_renderer()).padded(0.1)
-    clips, texts = [], []
+    def at(p):
+        f = p * (n - 1)
+        k = int(np.floor(f))
+        if k >= n - 1:
+            line.set_data(x, y)
+            return
+        t = f - k
+        line.set_data(np.append(x[: k + 1], x[k] + t * (x[k + 1] - x[k])),
+                      np.append(y[: k + 1], y[k] + t * (y[k + 1] - y[k])))
+    return at
+
+
+def _grow_points(coll):
+    offsets = coll.get_offsets().copy()
+    face, sizes = coll.get_facecolors().copy(), coll.get_sizes().copy()
+    n = len(offsets)
+
+    def at(p):
+        k = int(round(p * n))
+        coll.set_offsets(offsets[:k] if k else np.empty((0, 2)))
+        if len(face) > 1:
+            coll.set_facecolors(face[:k])
+        if len(sizes) > 1:
+            coll.set_sizes(sizes[:k])
+    return at
+
+
+def _grow_segments(coll):
+    segs = [np.asarray(sg, dtype=float).copy() for sg in coll.get_segments()]
+
+    def at(p):
+        coll.set_segments([np.vstack([sg[0], sg[0] + p * (sg[-1] - sg[0])]) if len(sg) == 2
+                           else sg[: max(1, int(round(p * len(sg))))] for sg in segs])
+    return at
+
+
+def _fade(art):
+    alpha = art.get_alpha() if art.get_alpha() is not None else 1.0
+    return lambda p: art.set_alpha(alpha * p)
+
+
+def _animator(fig):
+    """A function at(p) that sets every data element of `fig` to growth progress p in [0, 1]."""
+    from matplotlib.collections import LineCollection, PathCollection, PolyCollection
+
+    steps, texts = [], []
     for ax in fig.axes:
-        # A live clip box in axes coordinates; widening it reveals the data left to right.
-        box = Bbox([[0, 0], [0, 1]])
-        clip = TransformedBbox(box, ax.transAxes)
-        for art in [*ax.lines, *ax.collections, *ax.patches, *ax.images]:
-            art.set_clip_box(clip)
-            art.set_clip_on(True)
-        clips.append(box)
+        ax.set_xlim(ax.get_xlim())  # freeze limits: growing data must not rescale the axes
+        ax.set_ylim(ax.get_ylim())
+        in_bars = set()
+        for cont in ax.containers:
+            if not hasattr(cont, "orientation"):
+                continue
+            for bar in cont.patches:
+                in_bars.add(bar)
+                if cont.orientation == "horizontal":
+                    w = bar.get_width()
+                    steps.append(lambda p, b=bar, w=w: b.set_width(w * p))
+                else:
+                    h = bar.get_height()
+                    steps.append(lambda p, b=bar, h=h: b.set_height(h * p))
+        for patch in ax.patches:
+            if patch not in in_bars:
+                steps.append(_fade(patch))
+        for line in ax.lines:
+            if len(line.get_xdata()) > 2 or line.get_linestyle() in ("None", "", " "):
+                steps.append(_grow_line(line))  # two-point lines are reference lines: still
+        for coll in ax.collections:
+            if isinstance(coll, PathCollection):
+                steps.append(_grow_points(coll))
+            elif isinstance(coll, LineCollection):
+                steps.append(_grow_segments(coll))
+            elif isinstance(coll, PolyCollection):
+                steps.append(_fade(coll))
+        for img in ax.images:
+            steps.append(_fade(img))
         texts += [(t, t.get_alpha() if t.get_alpha() is not None else 1.0) for t in ax.texts]
 
-    def at(progress: float):
-        for box in clips:
-            box.x1 = max(progress, 1e-6)
-        fade = min(max((progress - 0.8) / 0.2, 0.0), 1.0)  # labels fade in over the last 20%
+    def at(p: float) -> None:
+        for step in steps:
+            step(p)
+        fade = min(max((p - 0.8) / 0.2, 0.0), 1.0)  # labels fade in over the last 20%
         for t, alpha in texts:
             t.set_alpha(alpha * fade)
             if getattr(t, "arrow_patch", None) is not None:
                 t.arrow_patch.set_alpha(alpha * fade)
             if t.get_bbox_patch() is not None:
                 t.get_bbox_patch().set_alpha(fade)
+    return at
+
+
+def _save_gif(fig, path: Path) -> None:
+    from PIL import Image
+
+    # Crop every frame to the finished chart's tight box, same as the PNG (stable frame size).
+    bbox = fig.get_tightbbox(fig.canvas.get_renderer()).padded(0.1)
+    grow = _animator(fig)
+
+    def at(progress: float):
+        grow(progress)
         return _frame(fig, bbox)
 
     frames = [at(ease_out(i / IN_FRAMES)) for i in range(1, IN_FRAMES + 1)]
@@ -185,6 +269,7 @@ def _save_gif(fig, path: Path) -> None:
     durations += [FRAME_MS] * OUT_FRAMES
     frames.append(at(0.0))
     durations.append(PAUSE_MS)
+    grow(1.0)  # leave the figure finished
     palette = frames[IN_FRAMES].quantize(colors=255, method=Image.Quantize.MEDIANCUT)
     frames = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
     frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0,

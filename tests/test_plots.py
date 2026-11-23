@@ -39,3 +39,45 @@ def test_save_can_skip_animation(tmp_path):
     ax.plot([0, 1], [0, 1])
     plots.save(fig, tmp_path, "still", animate=False)
     assert not (tmp_path / "still.gif").exists()
+
+
+def _demo_fig():
+    fig, (a1, a2) = plt.subplots(1, 2)
+    a1.bar([0, 1], [5.0, -3.0])
+    a1.bar([2], [2.0], bottom=[4.0])  # a waterfall step
+    a1.axhline(0)
+    a2.plot(np.arange(10), np.arange(10.0) ** 2)
+    a2.scatter(np.arange(8), np.arange(8))
+    a2.barh([0], [6.0])
+    a2.hlines([1], [2.0], [7.0])
+    return fig, a1, a2
+
+
+def test_bars_grow_from_their_own_baseline():
+    fig, a1, a2 = _demo_fig()
+    at = plots._animator(fig)
+    at(0.5)
+    heights = [p.get_height() for p in a1.patches]
+    assert heights == [2.5, -1.5, 1.0]
+    assert a1.patches[2].get_y() == 4.0  # the step keeps its bottom
+    assert a2.patches[0].get_width() == 3.0  # horizontal bars grow from the axis
+    at(1.0)
+    assert [p.get_height() for p in a1.patches] == [5.0, -3.0, 2.0]
+    plt.close(fig)
+
+
+def test_lines_draw_along_their_path_and_points_appear_in_order():
+    fig, a1, a2 = _demo_fig()
+    at = plots._animator(fig)
+    xlim = a2.get_xlim()
+    at(0.5)
+    line = a2.lines[0]
+    assert line.get_xdata()[-1] == 4.5  # ends part-way along, at an interpolated point
+    assert len(a2.collections[0].get_offsets()) == 4
+    seg = a2.collections[1].get_segments()[0]
+    assert seg[0][0] == 2.0 and seg[1][0] == 4.5  # range grows from its start
+    assert a2.get_xlim() == xlim  # axes stay fixed while data grows
+    assert len(a1.lines[0].get_xdata()) == 2  # reference lines are not animated
+    at(1.0)
+    assert len(line.get_xdata()) == 10 and len(a2.collections[0].get_offsets()) == 8
+    plt.close(fig)
