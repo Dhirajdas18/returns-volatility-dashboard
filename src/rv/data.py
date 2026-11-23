@@ -22,11 +22,19 @@ def fetch_yfinance(start: str = START, end: str | None = None) -> pd.DataFrame:
     import yfinance as yf
 
     tickers = {f"{s}.NS": s for s in SYMBOLS} | {"^NSEI": INDEX, "^INDIAVIX": VIX}
-    raw = yf.download(list(tickers), start=start, end=end, auto_adjust=False, progress=False)
+    # threads=False: parallel downloads can lock yfinance's sqlite cache and drop a ticker
+    raw = yf.download(list(tickers), start=start, end=end, auto_adjust=False, progress=False,
+                      threads=False)
     raw = raw[list(FIELDS)].rename(columns=FIELDS, level=0).rename(columns=tickers, level=1)
     raw.columns.names = ["field", "symbol"]
     raw.index = pd.DatetimeIndex(raw.index.tz_localize(None), name="date")
     return raw.sort_index(axis=1)
+
+
+def missing_symbols(table: pd.DataFrame) -> list[str]:
+    """Symbols whose adjusted close is entirely empty (a failed download)."""
+    adj = table["adj_close"]
+    return [str(c) for c in adj.columns if adj[c].isna().all()]
 
 
 def load(field: str, symbols: list[str] | None = None, path: Path = DATA_PATH) -> pd.DataFrame:

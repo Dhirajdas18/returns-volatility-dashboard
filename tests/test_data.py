@@ -50,3 +50,12 @@ def test_flag_adjusted_drops_catches_missed_bonus():
     adj = pd.DataFrame({"ITC": [300.0, 301.0, 201.0], "TCS": [10.0, 10.1, 10.2]},
                        index=pd.date_range("2016-06-29", periods=3, freq="D"))
     assert flag_adjusted_drops(adj) == [("ITC", pd.Timestamp("2016-07-01"))]
+
+
+def test_missing_symbols_lists_symbols_with_no_prices():
+    from rv.data import missing_symbols
+
+    cols = pd.MultiIndex.from_tuples([("adj_close", "ITC"), ("adj_close", "TCS")],
+                                     names=["field", "symbol"])
+    df = pd.DataFrame([[1.0, None], [2.0, None]], columns=cols)
+    assert missing_symbols(df) == ["TCS"]
