@@ -83,8 +83,8 @@ risk more than over-forecasting.
   shocks fade within days (INFY, ITC), because next month usually looks like the long run.
 - **At a 5-day horizon the field tightens:** Yang-Zhang, GARCH and EWMA all land within 10% of the best,
   while the 20-day window is 27% worse on average.
-- **Nothing forecast the 2020 crash.** Every estimator was still at 15% when NIFTY's next month delivered
-  over 80%. In 2020 alone the fast 20-day window scored best; once the calm returned, all of them stayed
+- **Nothing forecast the 2020 crash.** On 25 Feb 2020 every estimator said 13–16%; NIFTY's next month
+  delivered 80%. In 2020 alone the fast 20-day window scored best; once the calm returned, all of them stayed
   too high for weeks. Forecasts describe risk, not surprises; a margin of safety is still needed.
 
 ## Quick start
