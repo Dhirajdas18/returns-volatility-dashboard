@@ -8,6 +8,7 @@ from rv.site import (
     implied_figure,
     monthly_figure,
     perf_figure,
+    relate_figure,
     rolling_figure,
 )
 
@@ -84,3 +85,9 @@ def test_monthly_figure_one_heatmap_per_symbol_with_dropdown():
     fig = monthly_figure(_table())
     assert [t.type for t in fig.data] == ["heatmap", "heatmap"]
     assert [t.visible for t in fig.data] == [True, False]
+
+
+def test_relate_figure_beta_and_corr_per_stock_excluding_the_index():
+    fig = relate_figure(_table())
+    assert [t.name for t in fig.data] == ["beta (1 year)", "correlation (1 year)"]
+    assert [b.label for b in fig.layout.updatemenus[0].buttons] == ["ITC"]

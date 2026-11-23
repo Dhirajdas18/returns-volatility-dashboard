@@ -16,7 +16,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 - [x] Out-of-sample volatility forecast comparison (QLIKE, RMSE)
 - [x] Implied (India VIX) vs realised volatility, the volatility risk premium, VIX as a forecast
 - [x] Risk-adjusted returns: Sharpe with its uncertainty, Sortino, Calmar, rolling Sharpe, monthly heatmap
-- [ ] Rolling beta and correlation, volatility regimes
+- [x] Beta and correlation (rolling, and forecast out of sample), volatility regimes
 - [ ] Volatility targeting
 
 ## Findings
@@ -140,12 +140,38 @@ risk more than over-forecasting.
   were a pure coin flip, at least one of the 12 would look this lopsided 77% of the time. It is not a
   pattern to trade.
 
+### 6. Beta is not volatility, wanders year to year, and correlation jumps in stressed markets
+
+<table><tr>
+<td><a href="docs/img/beta_vs_vol.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/beta_vs_vol.png"><img src="docs/img/beta_vs_vol.gif" alt="Beta vs volatility relative to NIFTY with lines of constant correlation"></picture></a></td>
+<td><a href="docs/img/rolling_beta.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/rolling_beta.png"><img src="docs/img/rolling_beta.gif" alt="One-year rolling beta to NIFTY for five stocks"></picture></a></td>
+</tr><tr>
+<td><a href="docs/img/beta_forecast.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/beta_forecast.png"><img src="docs/img/beta_forecast.gif" alt="Error forecasting next year's beta by look-back window, raw and shrunk to 1"></picture></a></td>
+<td><a href="docs/img/regimes.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/regimes.png"><img src="docs/img/regimes.gif" alt="Average pairwise correlation and NIFTY return per unit of risk by volatility regime"></picture></a></td>
+</tr></table>
+
+- **Beta = correlation × relative volatility.** INFY moves 1.7× as much as NIFTY but has a beta of only
+  0.76, because its correlation with NIFTY is 0.44. HDFCBANK is the least volatile of the five stocks
+  but, at 0.73 correlation, has a beta of 1.04.
+- **One-year betas wander:** TCS ran from 0.22 to 1.05 and INFY from 0.30 to 1.42.
+- **Forecasting next year's beta** (checked monthly, same dates for every window): longer look-backs win,
+  with 3 years best (average error 0.16). Shrinking towards 1 (Blume) fixes most of a short window's
+  error (3 months: 0.23 → 0.19) but slightly hurts a 2–3 year estimate. Even the best forecast is off by
+  about ±0.16, because beta itself drifts.
+- **Volatility regimes** (NIFTY's EWMA volatility in the bottom, middle or top third of its past two years)
+  are sticky day to day: 94% of calm and stressed days are followed by the same regime. But they flicker at
+  the edges: the median stretch lasts only 4–5 days, though some run for months (up to 161 days).
+- **In stressed regimes the five stocks move together** (average correlation 0.36 vs 0.20 when calm), so
+  diversification weakens exactly when it's needed. NIFTY's return per unit of risk did not collapse in
+  stress, though (0.64 vs 0.52 calm, 0.91 normal), once each day is scored with the regime known at the
+  previous close. Labelling a day with its own volatility makes stress look worse than it was.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py   # Yahoo Finance -> data/prices.parquet
-uv run rv-report rolling              # or: estimators, forecast, implied, perf. Charts -> out/, numbers printed
+uv run rv-report rolling              # or: estimators, forecast, implied, perf, relate. Charts -> out/, numbers printed
 uv run python scripts/build_site.py   # dashboard -> site/index.html
 uv run pytest
 ```
@@ -158,6 +184,7 @@ uv run pytest
 - `src/rv/forecast.py`: out-of-sample forecast comparison with no look-ahead (tested).
 - `src/rv/implied.py`: implied vs realised volatility and VIX regimes on non-overlapping months.
 - `src/rv/perf.py`: Sharpe (with a fat-tail-aware standard error), Sortino, Calmar, monthly tables.
+- `src/rv/relate.py`: beta, correlation, beta forecast test, volatility regimes and their persistence.
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
 - `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for

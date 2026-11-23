@@ -13,6 +13,16 @@ from rv.data import INDEX, SYMBOLS, VIX, load, load_table
 from rv.forecast import evaluate, forecasts, realised_forward, scoreboard
 from rv.implied import premium, regime_returns, rolling_percentile
 from rv.perf import monthly_table, rolling_sharpe, summary
+from rv.relate import (
+    REGIMES,
+    beta,
+    beta_forecast_errors,
+    label_regimes,
+    regime_corr,
+    rolling_beta,
+    run_lengths,
+    transition_matrix,
+)
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
@@ -387,8 +397,101 @@ def report_perf(out_dir: Path) -> dict:
     }
 
 
+REGIME_COLORS = {"calm": plots.BLUE_RAMP[0], "normal": "#ecebe6", "stressed": "#f6c9c4"}
+
+
+def report_relate(out_dir: Path) -> dict:
+    """Beta vs volatility, rolling beta, forecasting next year's beta, volatility regimes."""
+    r = load("adj_close", [INDEX] + SYMBOLS).pct_change().iloc[1:]
+    m = r[INDEX]
+    stats = pd.DataFrame({s: {"beta": beta(r[s], m), "corr": r[s].corr(m),
+                              "vol ratio": r[s].std() / m.std()} for s in SYMBOLS}).T
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs = np.linspace(1.3, 1.85, 50)
+    for c in (0.4, 0.6, 0.8):
+        ax.plot(xs, c * xs, color=plots.GRID, lw=1.2, zorder=1)
+        ax.annotate(f"correlation {c}", (xs[-1], c * xs[-1]), xytext=(4, 0),
+                    textcoords="offset points", color=plots.TEXT_2, fontsize=8, va="center")
+    for sym, row in stats.iterrows():
+        ax.scatter(row["vol ratio"], row["beta"], s=90, color=plots.COLORS[sym], zorder=3,
+                   edgecolor=plots.SURFACE, linewidth=2)
+        ax.annotate(sym, (row["vol ratio"], row["beta"]), xytext=(8, -3),
+                    textcoords="offset points", color=plots.TEXT, fontsize=9)
+    ax.set_xlabel("volatility relative to NIFTY (×)")
+    ax.set_ylabel("beta to NIFTY")
+    ax.set_title("A volatile stock isn't a high-beta stock: beta = correlation × vol ratio")
+    plots.save(fig, out_dir, "beta_vs_vol")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    lines = {}
+    for sym in SYMBOLS:
+        rb = rolling_beta(r[sym], m, 252).dropna()
+        ax.plot(rb.index, rb, color=plots.COLORS[sym], lw=1.6)
+        lines[sym] = rb
+    ax.axhline(1, color=plots.TEXT_2, lw=0.8, ls="--")
+    _label_ends(ax, lines, plots.COLORS, gap=0.07)
+    ax.set_ylabel("beta over the past year")
+    ax.set_title("One-year betas wander: TCS ranged from 0.22 to 1.05")
+    plots.save(fig, out_dir, "rolling_beta")
+
+    errs = pd.concat({s: beta_forecast_errors(r[s], m) for s in SYMBOLS}).groupby(level=1).mean()
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for col, color in (("raw", plots.MUTED), ("shrunk to 1", plots.SERIES[0])):
+        ax.plot(errs.index, errs[col], marker="o", color=color, ms=7)
+        plots.label_line_end(ax, errs.index[-1], errs[col].iloc[-1], col, color)
+    ax.set_xscale("log")
+    ax.set_xticks(errs.index, [f"{w // 21}m" if w < 252 else f"{w // 252}y" for w in errs.index])
+    ax.minorticks_off()
+    ax.set_xlabel("look-back window used to measure beta")
+    ax.set_ylabel("average error vs next year's beta")
+    ax.set_title("Predicting next year's beta: use 3 years, or shrink a short estimate to 1")
+    plots.save(fig, out_dir, "beta_forecast")
+
+    vol = ewma_vol(np.log(1 + m))
+    lab = label_regimes(vol)
+    known = lab.shift(1)  # the regime as known at yesterday's close: a day can't label itself
+    corr = regime_corr(r[SYMBOLS], known).reindex(REGIMES)
+    nx = pd.concat([m, known], axis=1, keys=["r", "lab"]).dropna()
+    ann = nx.groupby("lab")["r"].agg(["mean", "std"]).reindex(REGIMES)
+    ret_per_risk = ann["mean"] * 252 / (ann["std"] * np.sqrt(252))
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.6))
+    panels = ((axes[0], corr, "average correlation between the 5 stocks"),
+              (axes[1], ret_per_risk, "NIFTY return per unit of risk (regime known a day ahead)"))
+    for ax, vals, title in panels:
+        ax.bar(REGIMES, vals, color=[REGIME_COLORS[g] for g in REGIMES], edgecolor=plots.TEXT_2,
+               linewidth=0.6, width=0.6)
+        for i, v in enumerate(vals):
+            ax.text(i, v, f"{v:.2f}", ha="center", va="bottom", color=plots.TEXT, fontsize=10)
+        ax.set_title(title, fontsize=10, fontweight="normal", color=plots.TEXT_2)
+        ax.grid(axis="x", visible=False)
+    fig.suptitle("Stressed regimes: stocks move together, but returns per risk hold up", x=0.06,
+                 ha="left", fontsize=13, fontweight="semibold", color=plots.TEXT)
+    plots.save(fig, out_dir, "regimes")
+
+    runs = run_lengths(lab)
+    shares = lab.value_counts(normalize=True).reindex(REGIMES)
+    return {
+        "beta / corr / vol ratio": stats.round(2).to_dict("index"),
+        "1y beta range": {s: f"{rolling_beta(r[s], m).min():.2f} to "
+                             f"{rolling_beta(r[s], m).max():.2f}" for s in SYMBOLS},
+        "beta forecast error (MAE)": errs.round(3).to_dict("index"),
+        "regime share of days": shares.round(2).to_dict(),
+        "stay-in-regime next day": {g: round(float(transition_matrix(lab).loc[g, g]), 3)
+                                    for g in REGIMES},
+        "run length median/mean/max (days)": {g: (int(np.median(v)), round(float(np.mean(v)), 1),
+                                                  int(max(v))) for g, v in runs.items()},
+        "pairwise corr by regime": corr.round(2).to_dict(),
+        "NIFTY ann. return / vol by regime": {g: f"{ann.loc[g, 'mean'] * 252:.1%} / "
+                                                 f"{ann.loc[g, 'std'] * np.sqrt(252):.1%}"
+                                              for g in REGIMES},
+        "return per risk by regime": ret_per_risk.round(2).to_dict(),
+    }
+
+
 REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast,
-           "implied": report_implied, "perf": report_perf}
+           "implied": report_implied, "perf": report_perf,
+           "relate": report_relate}
 
 
 def main(argv: list[str] | None = None) -> int:

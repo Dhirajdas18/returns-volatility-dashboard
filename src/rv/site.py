@@ -8,6 +8,7 @@ from rv.data import INDEX, VIX
 from rv.forecast import realised_forward, scoreboard
 from rv.implied import premium
 from rv.perf import monthly_table, summary
+from rv.relate import rolling_beta, rolling_corr
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, rolling_vol, yang_zhang
 
@@ -174,6 +175,25 @@ def monthly_figure(table: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def relate_figure(table: pd.DataFrame) -> go.Figure:
+    """One-year rolling beta and correlation of each stock against NIFTY."""
+    r = table["adj_close"].pct_change().iloc[1:]
+    stocks = [c for c in r.columns if c != INDEX]
+    fig = go.Figure()
+    for i, sym in enumerate(stocks):
+        pair = r[[sym, INDEX]].dropna()
+        for name, series, color in (
+            ("beta (1 year)", rolling_beta(pair[sym], pair[INDEX]), plots.SERIES[0]),
+            ("correlation (1 year)", rolling_corr(pair[sym], pair[INDEX]), plots.MUTED),
+        ):
+            v = series.dropna()
+            fig.add_scatter(x=list(v.index.strftime("%Y-%m-%d")), y=v.round(2).tolist(),
+                            name=name, visible=i == 0, line=dict(color=color, width=2),
+                            hovertemplate="%{y:.2f}")
+    _symbol_dropdown(fig, stocks, 2)
+    return _layout(fig, "vs NIFTY")
+
+
 SECTIONS = [
     ("Rolling volatility",
      "Standard deviation of the last N daily returns, annualised. Short windows react fast but are "
@@ -206,6 +226,11 @@ SECTIONS = [
      "Every calendar month, for the chosen symbol. Patterns like 'January is weak' come from only "
      "13–14 observations per month, which is too few to trade on.",
      monthly_figure),
+    ("Beta and correlation to NIFTY",
+     "Beta: how much the stock moves, on average, when NIFTY moves 1%. It equals correlation times "
+     "the stock's volatility relative to NIFTY, so a volatile stock can still have a low beta. "
+     "One-year betas wander a lot; a three-year window predicts next year's beta best.",
+     relate_figure),
 ]
 
 PAGE = """<!doctype html>
