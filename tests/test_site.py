@@ -1,27 +1,41 @@
 import numpy as np
 import pandas as pd
 
-from rv.site import build_html, rolling_figure
+from rv.site import build_html, estimators_figure, rolling_figure
 
 
-def _prices():
+def _table():
     rng = np.random.default_rng(0)
     idx = pd.bdate_range("2015-01-01", periods=600)
-    steps = rng.normal(0, 0.01, (600, 2))
-    return pd.DataFrame(100 * np.exp(steps.cumsum(axis=0)), index=idx, columns=["NIFTY", "ITC"])
+    frames = {}
+    for sym in ["NIFTY", "ITC"]:
+        close = 100 * np.exp(rng.normal(0, 0.01, 600).cumsum())
+        open_ = close * np.exp(rng.normal(0, 0.003, 600))
+        hi = np.maximum(open_, close) * 1.004
+        lo = np.minimum(open_, close) * 0.996
+        frames[sym] = pd.DataFrame({"open": open_, "high": hi, "low": lo, "close": close,
+                                    "adj_close": close}, index=idx)
+    table = pd.concat(frames, axis=1).swaplevel(axis=1).sort_index(axis=1)
+    table.columns.names = ["field", "symbol"]
+    return table
 
 
 def test_rolling_figure_one_trace_per_symbol_window_and_dropdown():
-    fig = rolling_figure(_prices(), windows=(20, 60))
+    fig = rolling_figure(_table(), windows=(20, 60))
     assert len(fig.data) == 4
     labels = [b.label for b in fig.layout.updatemenus[0].buttons]
-    assert labels == ["NIFTY", "ITC"]
-    # only the first symbol's traces start visible
+    assert labels == ["ITC", "NIFTY"]
     assert [t.visible for t in fig.data] == [True, True, False, False]
 
 
+def test_estimators_figure_has_four_estimators_per_symbol():
+    fig = estimators_figure(_table())
+    assert len(fig.data) == 8
+    assert {t.name for t in fig.data} == {"20-day rolling", "EWMA", "GARCH", "Yang-Zhang"}
+
+
 def test_build_html_is_one_page_loading_plotly_once():
-    html = build_html(_prices())
+    html = build_html(_table())
     assert html.startswith("<!doctype html>")
     assert html.count("cdn.plot.ly") == 1
     assert "<title>" in html

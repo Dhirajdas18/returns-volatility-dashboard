@@ -5,11 +5,13 @@ from pathlib import Path
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 from rv import plots
-from rv.data import INDEX, load
+from rv.data import INDEX, SYMBOLS, load
 from rv.returns import log_returns
-from rv.vol import rolling_vol
+from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
 OUT = Path("out")
 WINDOWS = {20: plots.BLUE_RAMP[2], 60: plots.BLUE_RAMP[4], 252: plots.BLUE_RAMP[6]}
@@ -19,6 +21,14 @@ def _pct(x: float) -> str:
     return f"{x:.0%}"
 
 
+def _label_ends(ax, lines: dict, colors: dict, gap: float = 4) -> None:
+    """Direct labels at each line's right end, nudged apart so none overlap."""
+    floor = -1e9
+    for name in sorted(lines, key=lambda k: lines[k].iloc[-1]):
+        floor = max(lines[name].iloc[-1], floor + gap)
+        plots.label_line_end(ax, lines[name].index[-1], floor, name, colors[name])
+
+
 def report_rolling(out_dir: Path) -> dict:
     """Rolling volatility with 20/60/252-day windows on NIFTY around the 2020 crash."""
     r = log_returns(load("adj_close", [INDEX])[INDEX])
@@ -26,15 +36,10 @@ def report_rolling(out_dir: Path) -> dict:
     span = slice("2019-10-01", "2021-09-30")
 
     fig, ax = plt.subplots(figsize=(9, 4.6))
-    ends = {}
-    for w, color in WINDOWS.items():
-        v = vols[w][span]
-        ax.plot(v.index, v * 100, color=color)
-        ends[w] = v.iloc[-1] * 100
-    floor = -1e9
-    for w in sorted(ends, key=ends.get):  # nudge labels apart so none overlap
-        floor = max(ends[w], floor + 4)
-        plots.label_line_end(ax, vols[w][span].index[-1], floor, f"{w}-day", WINDOWS[w])
+    shown = {f"{w}-day": vols[w][span] * 100 for w in WINDOWS}
+    for v, color in zip(shown.values(), WINDOWS.values(), strict=True):
+        ax.plot(v.index, v, color=color)
+    _label_ends(ax, shown, dict(zip(shown, WINDOWS.values(), strict=True)))
     ax.set_title("Longer windows are smoother but react months late (NIFTY, 2020)")
     ax.set_ylabel("annualised volatility, %")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
@@ -72,7 +77,88 @@ def report_rolling(out_dir: Path) -> dict:
     return out
 
 
-REPORTS = {"rolling": report_rolling}
+def _ohlc(sym: str) -> pd.DataFrame:
+    fields = ["open", "high", "low", "close"]
+    return pd.concat([load(f, [sym])[sym] for f in fields], axis=1, keys=fields).dropna()
+
+
+def report_estimators(out_dir: Path) -> dict:
+    """EWMA and GARCH vs a rolling window in 2020; GARCH forecasts; range vs close-to-close."""
+    c = plots.ESTIMATOR_COLORS
+    r = log_returns(load("adj_close", [INDEX])[INDEX])
+    fit = garch_fit(r)
+    lines = {"20-day rolling": rolling_vol(r, 20), "EWMA": ewma_vol(r), "GARCH": fit.vol}
+    span = slice("2020-02-15", "2020-07-31")
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    shown = {name: v[span] * 100 for name, v in lines.items()}
+    for name, v in shown.items():
+        ax.plot(v.index, v, color=c[name])
+    _label_ends(ax, shown, c)
+    ax.set_title("EWMA and GARCH react sooner and fade smoothly (NIFTY, 2020)")
+    ax.set_ylabel("annualised volatility, %")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    plots.save(fig, out_dir, "estimators_2020")
+
+    crash = r.idxmin()
+    calm = fit.vol["2017-01-01":"2019-12-31"].idxmin()
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for day, color in ((crash, plots.SERIES[7]), (calm, plots.SERIES[0])):
+        path = fit.forecast(126, day) * 100
+        ax.plot(path.index, path, color=color)
+        plots.label_line_end(ax, path.index[-1], path.iloc[-1], f"made {day:%d %b %Y}", color)
+    ax.axhline(fit.long_run_vol * 100, color=plots.MUTED, lw=1, ls="--")
+    ax.annotate(f"long-run {fit.long_run_vol:.0%}", (1, fit.long_run_vol * 100), xytext=(0, 4),
+                textcoords="offset points", color=plots.TEXT_2, fontsize=9)
+    ax.set_title(f"GARCH forecasts drift back to normal; shocks halve in ~{fit.half_life:.0f} days")
+    ax.set_xlabel("trading days ahead")
+    ax.set_ylabel("forecast volatility, %")
+    plots.save(fig, out_dir, "garch_forecast")
+
+    rows = {}
+    for sym in [INDEX] + SYMBOLS:
+        o = _ohlc(sym)
+        n = len(o) - 1  # whole sample (the first day has no previous close)
+        rows[sym] = {
+            "Close-to-close": float(np.log(o["close"]).diff().std() * np.sqrt(252)),
+            "Garman-Klass": float(garman_klass(o["open"], o["high"], o["low"], o["close"], n)
+                                  .iloc[-1]),
+            "Yang-Zhang": float(yang_zhang(o["open"], o["high"], o["low"], o["close"], n)
+                                .iloc[-1]),
+            "overnight share": float(np.log(o["open"] / o["close"].shift(1)).var()
+                                     / np.log(o["close"]).diff().var()),
+        }
+    tab = pd.DataFrame(rows).T
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    y = np.arange(len(tab))
+    bars = {"Close-to-close": plots.MUTED, "Garman-Klass": c["Garman-Klass"],
+            "Yang-Zhang": c["Yang-Zhang"]}
+    for i, (name, color) in enumerate(bars.items()):
+        ax.barh(y + (i - 1) * 0.26, tab[name] * 100, height=0.24, color=color, label=name)
+    ax.set_yticks(y, tab.index)
+    ax.invert_yaxis()
+    ax.set_xlabel("annualised volatility since 2013, %")
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3)
+    ax.grid(axis="y", visible=False)
+    ax.set_title("High/low estimators miss overnight gaps; Yang-Zhang puts them back", pad=28)
+    plots.save(fig, out_dir, "range_vs_close")
+
+    e, v20 = lines["EWMA"][span], lines["20-day rolling"][span]
+    return {
+        "EWMA peak": f"{e.idxmax():%Y-%m-%d} at {_pct(e.max())} (20-day: {v20.idxmax():%Y-%m-%d})",
+        "largest 1-day drop": f"EWMA {-e.diff().min() * 100:.1f} pts, 20-day "
+                              f"{-v20.diff().min() * 100:.1f} pts",
+        "NIFTY GARCH": f"alpha {fit.alpha:.3f}, beta {fit.beta:.3f}, persistence "
+                       f"{fit.persistence:.3f}, half-life {fit.half_life:.0f}d, long-run "
+                       f"{_pct(fit.long_run_vol)}",
+        "half-lives": {s: round(garch_fit(log_returns(load("adj_close", [s])[s])).half_life, 1)
+                       for s in SYMBOLS},
+        f"forecast made {crash:%Y-%m-%d}": [_pct(x) for x in fit.forecast(126, crash).iloc[
+            [0, 20, 62, 125]]],
+        "range table": tab.round(3).to_dict("index"),
+    }
+
+
+REPORTS = {"rolling": report_rolling, "estimators": report_estimators}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -22,6 +22,14 @@ COLORS = {
     "NIFTY": SERIES[5],
 }
 MUTED = "#a3a29c"
+# Estimators (validated 4-slot set; contrast WARN, so always direct-label or legend these lines).
+ESTIMATOR_COLORS = {
+    "20-day rolling": MUTED,
+    "EWMA": SERIES[1],
+    "GARCH": SERIES[6],
+    "Yang-Zhang": SERIES[2],
+    "Garman-Klass": SERIES[3],
+}
 # Sequential blue ramp (light to dark) for magnitudes such as correlation.
 BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
