@@ -136,8 +136,9 @@ risk more than over-forecasting.
 <a href="docs/img/monthly_heatmap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/monthly_heatmap.png"><img src="docs/img/monthly_heatmap.gif" alt="NIFTY monthly returns heatmap, 2013-2026" width="720"></picture></a>
 
 - NIFTY rose in 12 of 14 calendar years, yet **every calendar month has losing years**. January was up in
-  only 4 of 14 years and July in 11, but with 14 observations per month, gaps that size turn up by chance
-  across 12 months. It is not a pattern to trade.
+  only 4 of 14 years and July in 11, but with 14 observations per month that proves little. If every month
+  were a pure coin flip, at least one of the 12 would look this lopsided 77% of the time. It is not a
+  pattern to trade.
 
 ## Quick start
 
