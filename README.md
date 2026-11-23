@@ -198,8 +198,10 @@ from timing alone.
 - **The same on single stocks** (target 0.9 × each stock's own volatility): smaller drawdowns on all six
   series, but a lower Sharpe ratio on four (HDFCBANK and ITC slightly higher).
 - **When to use it:** when a capped worst case matters more than return, such as a drawdown limit or a
-  risk budget. Research showing gains from volatility timing typically allows leverage in calm periods;
-  without leverage, on this data, it costs return.
+  risk budget. US research (Moreira & Muir, 2017) found gains from volatility timing, with weights that
+  scale by 1/variance and can exceed 100% in calm markets, and reports that the gains survive realistic
+  leverage caps. This test is stricter (never above 100%) and uses a different market and forecast. Here
+  it cost return.
 
 ## Quick start
 
