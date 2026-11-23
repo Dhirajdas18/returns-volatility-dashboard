@@ -214,12 +214,15 @@ def _animator(fig):
                 continue
             for bar in cont.patches:
                 in_bars.add(bar)
+                # Stacked or floating bars scale their start too, so pieces stay attached.
                 if cont.orientation == "horizontal":
-                    w = bar.get_width()
-                    steps.append(lambda p, b=bar, w=w: b.set_width(w * p))
+                    w, x0 = bar.get_width(), bar.get_x()
+                    steps.append(lambda p, b=bar, w=w, x0=x0: (b.set_x(x0 * p),
+                                                              b.set_width(w * p)))
                 else:
-                    h = bar.get_height()
-                    steps.append(lambda p, b=bar, h=h: b.set_height(h * p))
+                    h, y0 = bar.get_height(), bar.get_y()
+                    steps.append(lambda p, b=bar, h=h, y0=y0: (b.set_y(y0 * p),
+                                                              b.set_height(h * p)))
         for patch in ax.patches:
             if patch not in in_bars:
                 steps.append(_fade(patch))

@@ -49,6 +49,7 @@ def _demo_fig():
     a2.plot(np.arange(10), np.arange(10.0) ** 2)
     a2.scatter(np.arange(8), np.arange(8))
     a2.barh([0], [6.0])
+    a2.barh([1], [2.0], left=[3.0])  # a stacked segment
     a2.hlines([1], [2.0], [7.0])
     return fig, a1, a2
 
@@ -59,8 +60,9 @@ def test_bars_grow_from_their_own_baseline():
     at(0.5)
     heights = [p.get_height() for p in a1.patches]
     assert heights == [2.5, -1.5, 1.0]
-    assert a1.patches[2].get_y() == 4.0  # the step keeps its bottom
+    assert a1.patches[2].get_y() == 2.0  # stacked pieces move with the bars below them
     assert a2.patches[0].get_width() == 3.0  # horizontal bars grow from the axis
+    assert a2.patches[1].get_x() == 1.5 and a2.patches[1].get_width() == 1.0  # stays attached
     at(1.0)
     assert [p.get_height() for p in a1.patches] == [5.0, -3.0, 2.0]
     plt.close(fig)
