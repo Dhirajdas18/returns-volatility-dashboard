@@ -15,7 +15,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 - [x] EWMA, GARCH(1,1) and range estimators (Parkinson, Garman-Klass, Yang-Zhang)
 - [x] Out-of-sample volatility forecast comparison (QLIKE, RMSE)
 - [x] Implied (India VIX) vs realised volatility, the volatility risk premium, VIX as a forecast
-- [ ] Risk-adjusted returns: Sharpe, Sortino, Calmar, rolling Sharpe, monthly heatmap
+- [x] Risk-adjusted returns: Sharpe with its uncertainty, Sortino, Calmar, rolling Sharpe, monthly heatmap
 - [ ] Rolling beta and correlation, volatility regimes
 - [ ] Volatility targeting
 
@@ -114,12 +114,37 @@ risk more than over-forecasting.
   sign it warns of losses. The worst month in the data, the 2020 crash, began on 19 Feb 2020, when VIX
   was at only its 30th percentile.
 
+### 5. Fourteen years is not enough to rank these stocks by Sharpe ratio
+
+<table><tr>
+<td><a href="docs/img/sharpe_ci.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/sharpe_ci.png"><img src="docs/img/sharpe_ci.gif" alt="Sharpe ratios with 95% ranges at 6.5% and 0% risk-free rates"></picture></a></td>
+<td><a href="docs/img/rolling_sharpe.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/rolling_sharpe.png"><img src="docs/img/rolling_sharpe.gif" alt="NIFTY one-year rolling Sharpe ratio, 2014-2026"></picture></a></td>
+</tr></table>
+
+- **The risk-free rate matters in India.** With a 0% risk-free rate (a common shortcut), NIFTY has the
+  best Sharpe ratio of the six (0.75). Against a 6.5% T-bill rate it drops to 0.34 and ranks fifth,
+  because its edge over cash is small and its low volatility no longer flatters it.
+- **Every Sharpe ratio's 95% range includes zero** (standard error about 0.27, allowing for fat tails).
+  RELIANCE leads at 0.46, but its range is −0.08 to +0.99, and it overlaps every other stock's. Fourteen
+  years can't separate them from each other, or from T-bills.
+- **One year says almost nothing.** NIFTY's rolling one-year Sharpe ran from −1.7 (Feb 2016) to +2.8
+  (Oct 2021) and was below zero 34% of the time, around a long-run value of 0.34.
+- **The metrics mostly agree on the extremes and disagree in the middle:** RELIANCE is first and ITC
+  last on CAGR, Sharpe, Sortino and Calmar, but INFY is second on growth and fourth on Calmar (its 48%
+  drawdown).
+
+<a href="docs/img/monthly_heatmap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/monthly_heatmap.png"><img src="docs/img/monthly_heatmap.gif" alt="NIFTY monthly returns heatmap, 2013-2026" width="720"></picture></a>
+
+- NIFTY rose in 12 of 14 calendar years, yet **every calendar month has losing years**. January was up in
+  only 4 of 14 years and July in 11, but with 14 observations per month, gaps that size turn up by chance
+  across 12 months. It is not a pattern to trade.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py   # Yahoo Finance -> data/prices.parquet
-uv run rv-report rolling              # or: estimators, forecast, implied. Charts -> out/, numbers printed
+uv run rv-report rolling              # or: estimators, forecast, implied, perf. Charts -> out/, numbers printed
 uv run python scripts/build_site.py   # dashboard -> site/index.html
 uv run pytest
 ```
@@ -131,6 +156,7 @@ uv run pytest
 - `src/rv/vol.py`: volatility estimators, all annualised.
 - `src/rv/forecast.py`: out-of-sample forecast comparison with no look-ahead (tested).
 - `src/rv/implied.py`: implied vs realised volatility and VIX regimes on non-overlapping months.
+- `src/rv/perf.py`: Sharpe (with a fat-tail-aware standard error), Sortino, Calmar, monthly tables.
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
 - `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for

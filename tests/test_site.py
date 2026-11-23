@@ -1,7 +1,15 @@
 import numpy as np
 import pandas as pd
 
-from rv.site import build_html, estimators_figure, forecast_figure, implied_figure, rolling_figure
+from rv.site import (
+    build_html,
+    estimators_figure,
+    forecast_figure,
+    implied_figure,
+    monthly_figure,
+    perf_figure,
+    rolling_figure,
+)
 
 
 def _table():
@@ -64,3 +72,15 @@ def test_build_html_keeps_vix_out_of_the_stock_menus():
     html = build_html(_with_vix())
     assert "Implied vs realised volatility" in html
     assert html.count('"label":"INDIAVIX"') == 0
+
+
+def test_perf_figure_is_a_table_row_per_symbol():
+    fig = perf_figure(_table())
+    assert fig.data[0].type == "table"
+    assert list(fig.data[0].cells.values[0]) == ["ITC", "NIFTY"]
+
+
+def test_monthly_figure_one_heatmap_per_symbol_with_dropdown():
+    fig = monthly_figure(_table())
+    assert [t.type for t in fig.data] == ["heatmap", "heatmap"]
+    assert [t.visible for t in fig.data] == [True, False]

@@ -12,6 +12,7 @@ from rv import plots
 from rv.data import INDEX, SYMBOLS, VIX, load, load_table
 from rv.forecast import evaluate, forecasts, realised_forward, scoreboard
 from rv.implied import premium, regime_returns, rolling_percentile
+from rv.perf import monthly_table, rolling_sharpe, summary
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
@@ -312,8 +313,82 @@ def report_implied(out_dir: Path) -> dict:
     }
 
 
+RF = 0.065  # assumed risk-free rate: India 91-day T-bills ran roughly 3-7% over 2013-2026
+
+
+def report_perf(out_dir: Path) -> dict:
+    """Sharpe (with its uncertainty), Sortino, Calmar; rolling Sharpe; NIFTY monthly heatmap."""
+    r = load("adj_close", [INDEX] + SYMBOLS).pct_change().iloc[1:]
+    at_rf, at_zero = summary(r, RF), summary(r, 0.0)
+    order = at_rf["Sharpe"].sort_values().index
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    y = np.arange(len(order))
+    ci = 1.96 * at_rf.loc[order, "Sharpe SE"]
+    ax.errorbar(at_rf.loc[order, "Sharpe"], y, xerr=ci, fmt="o", color=plots.SERIES[0],
+                ecolor=plots.BLUE_RAMP[2], elinewidth=6, capsize=0, ms=8,
+                label=f"risk-free {RF:.1%} (95% range)")
+    ax.scatter(at_zero.loc[order, "Sharpe"], y, color=plots.MUTED, s=40, zorder=3,
+               label="risk-free 0% (common shortcut)")
+    ax.axvline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_yticks(y, order)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("annualised Sharpe ratio, 2013–2026")
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2)
+    ax.set_title("Every Sharpe ratio's 95% range includes zero after 14 years", pad=28)
+    plots.save(fig, out_dir, "sharpe_ci")
+
+    rs = rolling_sharpe(r[INDEX], 252, RF).dropna()
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.fill_between(rs.index, rs, 0, where=rs >= 0, color=plots.BLUE_RAMP[1], lw=0)
+    ax.fill_between(rs.index, rs, 0, where=rs < 0, color=plots.SERIES[7], alpha=0.35, lw=0)
+    ax.plot(rs.index, rs, color=plots.TEXT, lw=1)
+    ax.axhline(at_rf.loc[INDEX, "Sharpe"], color=plots.SERIES[0], lw=1.2, ls="--")
+    plots.label_line_end(ax, rs.index[-1], at_rf.loc[INDEX, "Sharpe"],
+                         f"full period {at_rf.loc[INDEX, 'Sharpe']:.2f}", plots.SERIES[0])
+    ax.set_ylabel("Sharpe ratio over the past year")
+    ax.set_title(f"NIFTY's one-year Sharpe swung from {rs.min():.1f} to {rs.max():.1f}")
+    plots.save(fig, out_dir, "rolling_sharpe")
+
+    m = monthly_table(r[INDEX])
+    months = m.iloc[:, :12] * 100
+    lim = float(np.nanmax(np.abs(months.to_numpy())))
+    cmap = plt.matplotlib.colors.LinearSegmentedColormap.from_list(
+        "div", [plots.SERIES[7], "#f1f0ec", plots.SERIES[0]])
+    fig, ax = plt.subplots(figsize=(9, 5.2))
+    ax.imshow(months.to_numpy(), cmap=cmap, vmin=-lim, vmax=lim, aspect="auto")
+    for (i, j), v in np.ndenumerate(months.to_numpy()):
+        if not np.isnan(v):
+            ax.text(j, i, f"{round(v) + 0:.0f}", ha="center", va="center", fontsize=8,
+                    color="white" if abs(v) > lim * 0.6 else plots.TEXT)
+    ax.set_xticks(range(12), ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+                              "Oct", "Nov", "Dec"])
+    ax.set_yticks(range(len(m)), m.index)
+    ax.tick_params(length=0)
+    ax.grid(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_visible(False)
+    ax.set_title("NIFTY monthly returns, % (every month has losing years)")
+    plots.save(fig, out_dir, "monthly_heatmap")
+
+    up = (m.iloc[:, :12] > 0).mean()
+    return {
+        f"summary at rf {RF:.1%}": at_rf.round(3).to_dict("index"),
+        "Sharpe at rf 0%": at_zero["Sharpe"].round(2).to_dict(),
+        "95% Sharpe range": {k: f"{v.Sharpe - 1.96 * v['Sharpe SE']:+.2f} to "
+                                f"{v.Sharpe + 1.96 * v['Sharpe SE']:+.2f}"
+                             for k, v in at_rf.iterrows()},
+        "rank by": {c: list(at_rf[c].sort_values(ascending=False).index)
+                    for c in ("CAGR", "Sharpe", "Sortino", "Calmar")},
+        "rolling 1y Sharpe": f"{rs.min():.2f} ({rs.idxmin():%Y-%m}) to {rs.max():.2f} "
+                             f"({rs.idxmax():%Y-%m}); below 0 {(rs < 0).mean():.0%} of the time",
+        "share of years up, by month": up.round(2).to_dict(),
+        "years up": f"{(m['Year'] > 0).sum()}/{len(m)}",
+    }
+
+
 REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast,
-           "implied": report_implied}
+           "implied": report_implied, "perf": report_perf}
 
 
 def main(argv: list[str] | None = None) -> int:

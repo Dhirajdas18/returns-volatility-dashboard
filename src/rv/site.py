@@ -7,6 +7,7 @@ from rv import plots
 from rv.data import INDEX, VIX
 from rv.forecast import realised_forward, scoreboard
 from rv.implied import premium
+from rv.perf import monthly_table, summary
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, rolling_vol, yang_zhang
 
@@ -124,6 +125,55 @@ def implied_figure(table: pd.DataFrame) -> go.Figure:
     return _layout(fig, "annualised volatility, %")
 
 
+RF = 0.065  # assumed risk-free rate (India 91-day T-bills ran roughly 3-7% over 2013-2026)
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def perf_figure(table: pd.DataFrame) -> go.Figure:
+    """Risk-adjusted summary table, one row per symbol."""
+    r = table["adj_close"].pct_change().iloc[1:]
+    s = summary(r, RF)
+    lo, hi = s["Sharpe"] - 1.96 * s["Sharpe SE"], s["Sharpe"] + 1.96 * s["Sharpe SE"]
+    cols = {
+        "": list(s.index),
+        "CAGR": [f"{v:.1%}" for v in s["CAGR"]],
+        "Volatility": [f"{v:.1%}" for v in s["Vol"]],
+        "Sharpe": [f"{v:.2f}" for v in s["Sharpe"]],
+        "Sharpe 95% range": [f"{a:+.2f} to {b:+.2f}" for a, b in zip(lo, hi, strict=True)],
+        "Sortino": [f"{v:.2f}" for v in s["Sortino"]],
+        "Max drawdown": [f"{v:.0%}" for v in s["Max DD"]],
+        "Calmar": [f"{v:.2f}" for v in s["Calmar"]],
+    }
+    fig = go.Figure(go.Table(
+        header=dict(values=list(cols), fill_color=plots.SURFACE, align="left",
+                    font=dict(color=plots.TEXT, size=13), line_color=plots.GRID),
+        cells=dict(values=list(cols.values()), fill_color=plots.SURFACE, align="left",
+                   font=dict(color=plots.TEXT_2, size=13), line_color=plots.GRID, height=30),
+    ))
+    fig.update_layout(paper_bgcolor=plots.SURFACE, margin=dict(l=0, r=0, t=8, b=0),
+                      height=80 + 30 * len(s))
+    return fig
+
+
+def monthly_figure(table: pd.DataFrame) -> go.Figure:
+    """Calendar heatmap of monthly returns, one symbol at a time."""
+    fig = go.Figure()
+    symbols = list(table["adj_close"].columns)
+    scale = [[0, plots.SERIES[7]], [0.5, "#f1f0ec"], [1, plots.SERIES[0]]]
+    for i, sym in enumerate(symbols):
+        m = monthly_table(table["adj_close"][sym].dropna().pct_change().iloc[1:]).iloc[:, :12]
+        z = (m * 100).round(1)
+        fig.add_heatmap(z=z.to_numpy(), x=MONTHS, y=[str(y) for y in m.index], visible=i == 0,
+                        colorscale=scale, zmid=0, zmin=-15, zmax=15, showscale=False,
+                        texttemplate="%{z:.0f}", name=sym,
+                        hovertemplate="%{x} %{y}: %{z:.1f}%<extra></extra>")
+    _symbol_dropdown(fig, symbols, 1)
+    fig.update_layout(paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE, height=520,
+                      font=dict(family="Inter, system-ui, sans-serif", color=plots.TEXT_2, size=12),
+                      margin=dict(l=56, r=24, t=64, b=40), yaxis=dict(autorange="reversed"))
+    return fig
+
+
 SECTIONS = [
     ("Rolling volatility",
      "Standard deviation of the last N daily returns, annualised. Short windows react fast but are "
@@ -146,6 +196,16 @@ SECTIONS = [
      "protection. It still forecast NIFTY's next month better than any model here, but it was "
      "calm on the eve of the 2020 crash.",
      implied_figure),
+    ("Risk-adjusted returns",
+     "Sharpe = excess return over a 6.5% risk-free rate per unit of volatility; Sortino counts "
+     "only downside volatility; Calmar = growth rate over the worst drawdown. After 14 years each "
+     "Sharpe ratio is still uncertain by about ±0.5, so small differences between stocks mean "
+     "nothing.",
+     perf_figure),
+    ("Monthly returns",
+     "Every calendar month, for the chosen symbol. Patterns like 'January is weak' come from only "
+     "13–14 observations per month, which is too few to trade on.",
+     monthly_figure),
 ]
 
 PAGE = """<!doctype html>
