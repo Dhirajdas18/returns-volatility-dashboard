@@ -4,7 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from rv import plots
-from rv.forecast import scoreboard
+from rv.data import INDEX, VIX
+from rv.forecast import realised_forward, scoreboard
+from rv.implied import premium
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, rolling_vol, yang_zhang
 
@@ -111,6 +113,17 @@ def forecast_figure(table: pd.DataFrame, train_end="2020-01-01") -> go.Figure:
     return fig
 
 
+def implied_figure(table: pd.DataFrame) -> go.Figure:
+    """India VIX at each date vs the NIFTY volatility that followed over the next month."""
+    vix = table["close"][VIX].dropna() / 100
+    real = realised_forward(log_returns(table["adj_close"][INDEX].dropna()))
+    prem = premium(vix, real)
+    fig = go.Figure()
+    _line(fig, prem["implied"], "India VIX (implied)", plots.SERIES[0], True)
+    _line(fig, prem["realised"], "NIFTY vol over the next month", plots.TEXT, True)
+    return _layout(fig, "annualised volatility, %")
+
+
 SECTIONS = [
     ("Rolling volatility",
      "Standard deviation of the last N daily returns, annualised. Short windows react fast but are "
@@ -127,6 +140,12 @@ SECTIONS = [
      "2013–2019 only and scored on 2020 onwards with QLIKE, the standard loss for volatility "
      "forecasts, which punishes under-forecasting risk hardest. 1.00 = best for that symbol.",
      forecast_figure),
+    ("Implied vs realised volatility",
+     "India VIX is the volatility NIFTY options price in for the next 30 days. It sat above the "
+     "volatility that actually followed on about 4 days in 5: option buyers pay a premium for "
+     "protection. It still forecast NIFTY's next month better than any model here, but it was "
+     "calm on the eve of the 2020 crash.",
+     implied_figure),
 ]
 
 PAGE = """<!doctype html>
@@ -190,9 +209,14 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {{
 def build_html(table: pd.DataFrame) -> str:
     """`table`: the (field, symbol) price table from rv.data."""
     parts = []
+    has_vix = VIX in table.columns.get_level_values("symbol")
+    stocks = table.drop(columns=VIX, level="symbol") if has_vix else table
     for i, (title, blurb, make) in enumerate(SECTIONS):
-        div = make(table).to_html(full_html=False, include_plotlyjs="cdn" if i == 0 else False,
-                                   config={"displaylogo": False, "responsive": True})
+        if make is implied_figure and not has_vix:
+            continue
+        fig = make(table) if make is implied_figure else make(stocks)
+        div = fig.to_html(full_html=False, include_plotlyjs="cdn" if i == 0 else False,
+                          config={"displaylogo": False, "responsive": True})
         parts.append(f"<section>\n<h2>{title}</h2>\n<p>{blurb}</p>\n{div}\n</section>")
     return PAGE.format(icon=ICON, surface=plots.SURFACE, text=plots.TEXT, text2=plots.TEXT_2,
                        grid=plots.GRID, updated=f"{table.index[-1]:%d %b %Y}",

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from rv.site import build_html, estimators_figure, forecast_figure, rolling_figure
+from rv.site import build_html, estimators_figure, forecast_figure, implied_figure, rolling_figure
 
 
 def _table():
@@ -45,3 +45,22 @@ def test_forecast_figure_is_one_heatmap_symbols_by_estimators():
     fig = forecast_figure(_table(), train_end="2016-06-01")
     assert len(fig.data) == 1 and fig.data[0].type == "heatmap"
     assert list(fig.data[0].x) == ["ITC", "NIFTY"]
+
+
+def _with_vix():
+    table = _table()
+    vix = pd.Series(15.0, index=table.index)
+    extra = pd.concat({("close", "INDIAVIX"): vix}, axis=1)
+    extra.columns.names = ["field", "symbol"]
+    return pd.concat([table, extra], axis=1)
+
+
+def test_implied_figure_has_vix_and_realised_lines():
+    fig = implied_figure(_with_vix())
+    assert [t.name for t in fig.data] == ["India VIX (implied)", "NIFTY vol over the next month"]
+
+
+def test_build_html_keeps_vix_out_of_the_stock_menus():
+    html = build_html(_with_vix())
+    assert "Implied vs realised volatility" in html
+    assert html.count('"label":"INDIAVIX"') == 0

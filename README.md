@@ -14,7 +14,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 - [x] Rolling volatility across windows, with the window-length trade-off measured
 - [x] EWMA, GARCH(1,1) and range estimators (Parkinson, Garman-Klass, Yang-Zhang)
 - [x] Out-of-sample volatility forecast comparison (QLIKE, RMSE)
-- [ ] Implied (India VIX) vs realised volatility and the variance risk premium
+- [x] Implied (India VIX) vs realised volatility, the volatility risk premium, VIX as a forecast
 - [ ] Risk-adjusted returns: Sharpe, Sortino, Calmar, rolling Sharpe, monthly heatmap
 - [ ] Rolling beta and correlation, volatility regimes
 - [ ] Volatility targeting
@@ -87,12 +87,39 @@ risk more than over-forecasting.
   delivered 80%. In 2020 alone the fast 20-day window scored best; once the calm returned, all of them stayed
   too high for weeks. Forecasts describe risk, not surprises; a margin of safety is still needed.
 
+### 4. India VIX overprices risk most days, yet forecasts best; high VIX was not a sell signal
+
+<table><tr>
+<td><a href="docs/img/implied_vs_realised.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/implied_vs_realised.png"><img src="docs/img/implied_vs_realised.gif" alt="India VIX vs NIFTY realised volatility over the next month, 2013-2026"></picture></a></td>
+<td><a href="docs/img/vix_forecast.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vix_forecast.png"><img src="docs/img/vix_forecast.gif" alt="QLIKE of India VIX vs volatility models, 2020-2026"></picture></a></td>
+</tr></table>
+
+- **Volatility risk premium:** India VIX (the volatility NIFTY options price in for the next 30 days) was
+  above the volatility that actually followed on 79% of days, by 2.5 points on average. Option buyers pay
+  for protection, and sellers collect that premium most months. The exceptions are violent: on 5 Mar 2020
+  VIX said 23% and the next month delivered 88%.
+- **VIX is still the best forecast of NIFTY's next month** (QLIKE 0.33 vs 0.39 for GARCH, 2020–2026). It
+  needs no fitting, and it knows about scheduled events (results, budgets, elections) that past prices
+  can't. Scaling VIX down by its 2013–2019 average premium removed the bias but made the QLIKE score
+  worse (0.38). The premium works as a built-in safety margin, which a score that punishes
+  under-forecasting rewards.
+
+<a href="docs/img/vix_regime.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vix_regime.png"><img src="docs/img/vix_regime.gif" alt="NIFTY next-month return after high-VIX days vs other days" width="720"></picture></a>
+
+- **High VIX was followed by better months, not worse.** A common rule cuts exposure when VIX is above its
+  2-year 80th percentile. On non-overlapping months since 2015, NIFTY's next month after those days had a
+  median return of +2.0% (range across start days +0.6% to +3.3%) vs +0.5% otherwise. That held for 20 of
+  21 possible start days, and in both 2015–2019 and 2020–2026.
+- The sample is small (26 high-VIX months), so this is not proof that high VIX is bullish. But there is no
+  sign it warns of losses. The worst month in the data, the 2020 crash, began on 19 Feb 2020, when VIX
+  was at only its 30th percentile.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py   # Yahoo Finance -> data/prices.parquet
-uv run rv-report rolling              # or: estimators, forecast. Charts -> out/, numbers printed
+uv run rv-report rolling              # or: estimators, forecast, implied. Charts -> out/, numbers printed
 uv run python scripts/build_site.py   # dashboard -> site/index.html
 uv run pytest
 ```
@@ -103,6 +130,7 @@ uv run pytest
   adjusted-price drops.
 - `src/rv/vol.py`: volatility estimators, all annualised.
 - `src/rv/forecast.py`: out-of-sample forecast comparison with no look-ahead (tested).
+- `src/rv/implied.py`: implied vs realised volatility and VIX regimes on non-overlapping months.
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
 - `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for

@@ -9,8 +9,9 @@ import numpy as np
 import pandas as pd
 
 from rv import plots
-from rv.data import INDEX, SYMBOLS, load, load_table
-from rv.forecast import forecasts, realised_forward, scoreboard
+from rv.data import INDEX, SYMBOLS, VIX, load, load_table
+from rv.forecast import evaluate, forecasts, realised_forward, scoreboard
+from rv.implied import premium, regime_returns, rolling_percentile
 from rv.returns import log_returns
 from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
@@ -218,7 +219,101 @@ def report_forecast(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast}
+def report_implied(out_dir: Path) -> dict:
+    """India VIX vs realised NIFTY vol; VIX as a forecast; what high VIX says about returns."""
+    prices = load("adj_close", [INDEX])[INDEX]
+    r = log_returns(prices)
+    vix = load("close", [VIX])[VIX] / 100
+    real = realised_forward(r)
+    prem = premium(vix, real)
+
+    weekly = prem.resample("W").last() * 100
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.fill_between(weekly.index, weekly["realised"], weekly["implied"],
+                    where=weekly["implied"] >= weekly["realised"], color=plots.BLUE_RAMP[0],
+                    interpolate=True, lw=0)
+    ax.fill_between(weekly.index, weekly["realised"], weekly["implied"],
+                    where=weekly["implied"] < weekly["realised"], color=plots.SERIES[7],
+                    alpha=0.35, interpolate=True, lw=0)
+    ax.plot(weekly.index, weekly["implied"], color=plots.SERIES[0], lw=1.8,
+            label="India VIX (implied, at the time)")
+    ax.plot(weekly.index, weekly["realised"], color=plots.TEXT, lw=1.2,
+            label="NIFTY volatility over the next month")
+    ax.legend(loc="upper left")
+    worst = prem["spread"].idxmin()
+    ax.annotate(f"{worst:%d %b %Y}: VIX {prem.loc[worst, 'implied']:.0%}, next month "
+                f"{prem.loc[worst, 'realised']:.0%}", (worst, prem.loc[worst, "realised"] * 100),
+                xytext=(10, -4), textcoords="offset points", color=plots.TEXT_2, fontsize=9)
+    ax.set_ylim(0, None)
+    ax.set_ylabel("annualised volatility, %")
+    ax.set_title(f"VIX sat above the volatility that followed on {(prem.spread > 0).mean():.0%} "
+                 "of days (NIFTY)")
+    plots.save(fig, out_dir, "implied_vs_realised")
+
+    train = prem.loc[: "2019-12-31"]
+    scale = float((train["realised"] / train["implied"]).mean())
+    fc = forecasts(r, SPLIT, _ohlc(INDEX))
+    fc["India VIX"] = vix.reindex(fc.index)
+    fc["VIX x train ratio"] = fc["India VIX"] * scale
+    scores = evaluate(fc, real, SPLIT)
+    keep = ["India VIX", "VIX x train ratio", "GARCH", "Yang-Zhang", "EWMA", "20-day rolling"]
+    shown = scores.loc[[k for k in scores.index if k in keep], "QLIKE"]
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    colors = [plots.SERIES[0] if "VIX" in k else plots.ESTIMATOR_COLORS.get(k, plots.MUTED)
+              for k in shown.index]
+    ax.barh(shown.index, shown, color=colors, height=0.6)
+    for i, v in enumerate(shown):
+        ax.text(v, i, f" {v:.2f}", va="center", color=plots.TEXT_2, fontsize=9)
+    ax.invert_yaxis()
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("QLIKE, 2020–2026 (lower is better)")
+    ax.set_title("The options market forecast NIFTY's next month better than any model")
+    plots.save(fig, out_dir, "vix_forecast")
+
+    pct = rolling_percentile(vix)
+    runs = [regime_returns(prices, pct, offset=o) for o in range(21)]
+    med = {g: float(np.median([x.loc[g, "mean return"] for x in runs])) for g in ("high", "normal")}
+    lo = {g: min(x.loc[g, "mean return"] for x in runs) for g in med}
+    hi = {g: max(x.loc[g, "mean return"] for x in runs) for g in med}
+    months = {g: int(runs[0].loc[g, "months"]) for g in med}
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    labels = [f"VIX above its 2-year 80th percentile\n({months['high']} months)",
+              f"all other days\n({months['normal']} months)"]
+    vals = [med["high"] * 100, med["normal"] * 100]
+    errs = [[(med[g] - lo[g]) * 100 for g in med], [(hi[g] - med[g]) * 100 for g in med]]
+    ax.bar(labels, vals, yerr=errs, color=[plots.SERIES[0], plots.MUTED], width=0.5,
+           capsize=6, ecolor=plots.TEXT_2)
+    for i, v in enumerate(vals):
+        ax.text(i + 0.27, v, f"{v:+.1f}%", va="center", color=plots.TEXT, fontsize=10)
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.grid(axis="x", visible=False)
+    ax.set_ylabel("NIFTY return over the next month, %")
+    ax.set_xlabel("bars: median across all 21 possible start days; whiskers: lowest to highest",
+                  fontsize=9, color=plots.TEXT_2)
+    ax.set_title("High VIX was followed by better months, not worse (2015–2026)")
+    plots.save(fig, out_dir, "vix_regime")
+
+    hi_wins = sum(x.loc["high", "mean return"] > x.loc["normal", "mean return"] for x in runs)
+    worst_start = np.log(prices.shift(-21) / prices).idxmin()
+    return {
+        "VIX above realised": f"{(prem.spread > 0).mean():.0%} of days",
+        "mean / median premium": f"{prem.spread.mean() * 100:.1f} / "
+                                 f"{prem.spread.median() * 100:.1f} vol pts",
+        "worst miss": f"{worst:%Y-%m-%d}: VIX {prem.loc[worst, 'implied']:.0%} vs "
+                      f"{prem.loc[worst, 'realised']:.0%}",
+        "train ratio realised/VIX": round(scale, 3),
+        "QLIKE 2020-26": scores["QLIKE"].round(3).to_dict(),
+        "bias 2020-26 (vol pts)": (scores["bias"] * 100).round(1).to_dict(),
+        "next-month return, median over 21 offsets": {g: f"{med[g]:+.2%} (range {lo[g]:+.2%} to "
+                                                      f"{hi[g]:+.2%})" for g in med},
+        "high beat normal": f"{hi_wins}/21 offsets",
+        "worst month start": f"{worst_start:%Y-%m-%d}, VIX percentile then "
+                             f"{pct.asof(worst_start):.2f}",
+    }
+
+
+REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast,
+           "implied": report_implied}
 
 
 def main(argv: list[str] | None = None) -> int:
