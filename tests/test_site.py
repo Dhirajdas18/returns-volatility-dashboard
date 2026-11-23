@@ -10,6 +10,7 @@ from rv.site import (
     perf_figure,
     relate_figure,
     rolling_figure,
+    target_figure,
 )
 
 
@@ -91,3 +92,10 @@ def test_relate_figure_beta_and_corr_per_stock_excluding_the_index():
     fig = relate_figure(_table())
     assert [t.name for t in fig.data] == ["beta (1 year)", "correlation (1 year)"]
     assert [b.label for b in fig.layout.updatemenus[0].buttons] == ["ITC"]
+
+
+def test_target_figure_vol_target_vs_static_per_symbol():
+    fig = target_figure(_table())
+    names = [t.name for t in fig.data[:2]]
+    assert names == ["vol target (0.9× own vol)", "fixed mix, same exposure"]
+    assert len(fig.data) == 4

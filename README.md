@@ -17,7 +17,7 @@ a static interactive site rebuilt every week from fresh data by GitHub Actions.
 - [x] Implied (India VIX) vs realised volatility, the volatility risk premium, VIX as a forecast
 - [x] Risk-adjusted returns: Sharpe with its uncertainty, Sortino, Calmar, rolling Sharpe, monthly heatmap
 - [x] Beta and correlation (rolling, and forecast out of sample), volatility regimes
-- [ ] Volatility targeting
+- [x] Volatility targeting, benchmarked against a fixed mix with the same exposure
 
 ## Findings
 
@@ -166,12 +166,47 @@ risk more than over-forecasting.
   stress, though (0.64 vs 0.52 calm, 0.91 normal), once each day is scored with the regime known at the
   previous close. Labelling a day with its own volatility makes stress look worse than it was.
 
+### 7. Without leverage, volatility targeting is crash insurance, not extra return
+
+<table><tr>
+<td><a href="docs/img/vt_equity.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vt_equity.png"><img src="docs/img/vt_equity.gif" alt="NIFTY growth and drawdown: vol target 15% vs fixed mix vs buy and hold"></picture></a></td>
+<td><a href="docs/img/vt_frontier.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vt_frontier.png"><img src="docs/img/vt_frontier.gif" alt="Risk vs growth: fixed NIFTY-cash mixes vs vol targets from 8% to 20%"></picture></a></td>
+</tr></table>
+
+Each day's weight is target ÷ EWMA volatility forecast, capped at 100% (no leverage), decided at the close
+and applied from the next day. Cash earns 6.5%, and every change in weight costs 0.1% of the amount traded.
+The fair benchmark is a **fixed mix with the same average exposure**, because holding less stock lowers
+risk by itself. Scaling exposure uniformly never changes the excess Sharpe ratio, so any difference comes
+from timing alone.
+
+- **NIFTY at a 15% target** (target fixed in advance, just under NIFTY's 16% long-run volatility):
+  one-year volatility stayed between 9% and 16% (fixed mix: 8–30%), and the worst drawdown fell from 36%
+  to 23%. But growth fell from 11.1% to 9.2% a year, and the Sharpe ratio from 0.35 to 0.24. That held in
+  both halves of the sample and at zero cost, so trading costs are not the cause.
+- **At every risk level a fixed mix earned more** (right chart): every target from 8% to 20% sits below
+  the fixed-mix line.
+- **The protection is narrow.** The 2020 crash was the one big win (−23% vs −36%). In 12 of 14 calendar
+  years the vol target's worst drawdown was the same or deeper, and its average drawdown was −5.9% vs
+  −4.8%. With a 100% cap it can't add exposure in calm markets, only cut it after volatility has
+  already risen, and sections 4 and 6 showed that NIFTY's stressed periods were followed by decent
+  returns.
+- The cruder **VIX rule** (halve exposure above VIX's 2-year 80th percentile) did no better: Sharpe 0.26 at
+  twice the turnover.
+
+<a href="docs/img/vt_stocks.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vt_stocks.png"><img src="docs/img/vt_stocks.gif" alt="Vol targeting vs fixed mix: Sharpe and max drawdown for six NSE series" width="720"></picture></a>
+
+- **The same on single stocks** (target 0.9 × each stock's own volatility): smaller drawdowns on all six
+  series, but a lower Sharpe ratio on four (HDFCBANK and ITC slightly higher).
+- **When to use it:** when a capped worst case matters more than return, such as a drawdown limit or a
+  risk budget. Research showing gains from volatility timing typically allows leverage in calm periods;
+  without leverage, on this data, it costs return.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py   # Yahoo Finance -> data/prices.parquet
-uv run rv-report rolling              # or: estimators, forecast, implied, perf, relate. Charts -> out/, numbers printed
+uv run rv-report rolling              # also: estimators forecast implied perf relate target
 uv run python scripts/build_site.py   # dashboard -> site/index.html
 uv run pytest
 ```
@@ -185,6 +220,7 @@ uv run pytest
 - `src/rv/implied.py`: implied vs realised volatility and VIX regimes on non-overlapping months.
 - `src/rv/perf.py`: Sharpe (with a fat-tail-aware standard error), Sortino, Calmar, monthly tables.
 - `src/rv/relate.py`: beta, correlation, beta forecast test, volatility regimes and their persistence.
+- `src/rv/target.py`: volatility targeting with next-day execution, cash yield and trading costs.
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
 - `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for

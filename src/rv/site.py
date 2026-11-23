@@ -1,5 +1,6 @@
 """Interactive dashboard: one static HTML page of Plotly charts, built from the price table."""
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -10,6 +11,7 @@ from rv.implied import premium
 from rv.perf import monthly_table, summary
 from rv.relate import rolling_beta, rolling_corr
 from rv.returns import log_returns
+from rv.target import apply_weights, static_match, vol_target_weights
 from rv.vol import ewma_vol, garch_fit, rolling_vol, yang_zhang
 
 ICON = (
@@ -194,6 +196,29 @@ def relate_figure(table: pd.DataFrame) -> go.Figure:
     return _layout(fig, "vs NIFTY")
 
 
+COST = 0.001  # 0.1% of the amount traded (assumption)
+
+
+def target_figure(table: pd.DataFrame) -> go.Figure:
+    """Growth of ₹1 lakh: vol targeting (no leverage) vs a fixed mix with the same exposure."""
+    r = table["adj_close"].pct_change().iloc[1:]
+    symbols = list(r.columns)
+    fig = go.Figure()
+    for i, sym in enumerate(symbols):
+        x = r[sym].dropna()
+        target = float(x.std() * (252**0.5) * 0.9)
+        vt = apply_weights(x, vol_target_weights(ewma_vol(np.log1p(x)), target), RF, COST)
+        st = static_match(x, vt["weight"], RF, COST)
+        for name, df, color in (("vol target (0.9× own vol)", vt, plots.SERIES[0]),
+                                ("fixed mix, same exposure", st, plots.TEXT)):
+            w = (1 + df["return"]).cumprod()
+            fig.add_scatter(x=list(w.index.strftime("%Y-%m-%d")), y=w.round(3).tolist(),
+                            name=name, visible=i == 0, line=dict(color=color, width=2),
+                            hovertemplate="₹%{y:.2f} lakh")
+    _symbol_dropdown(fig, symbols, 2)
+    return _layout(fig, "₹ lakh, started with 1 (after costs)")
+
+
 SECTIONS = [
     ("Rolling volatility",
      "Standard deviation of the last N daily returns, annualised. Short windows react fast but are "
@@ -231,6 +256,12 @@ SECTIONS = [
      "the stock's volatility relative to NIFTY, so a volatile stock can still have a low beta. "
      "One-year betas wander a lot; a three-year window predicts next year's beta best.",
      relate_figure),
+    ("Volatility targeting",
+     "Hold less when forecast volatility (EWMA) is high and more when it is low, never above 100%. "
+     "Compared with a fixed mix holding the same average amount, it softened the 2020 crash but "
+     "earned less and had deeper ordinary drawdowns in most years: crash insurance, not a free "
+     "lunch.",
+     target_figure),
 ]
 
 PAGE = """<!doctype html>

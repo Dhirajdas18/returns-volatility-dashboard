@@ -12,7 +12,7 @@ from rv import plots
 from rv.data import INDEX, SYMBOLS, VIX, load, load_table
 from rv.forecast import evaluate, forecasts, realised_forward, scoreboard
 from rv.implied import premium, regime_returns, rolling_percentile
-from rv.perf import monthly_table, rolling_sharpe, summary
+from rv.perf import cagr, max_drawdown, monthly_table, rolling_sharpe, sharpe, summary
 from rv.relate import (
     REGIMES,
     beta,
@@ -24,6 +24,7 @@ from rv.relate import (
     transition_matrix,
 )
 from rv.returns import log_returns
+from rv.target import apply_weights, compare, static_match, vol_target_weights
 from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
 
 OUT = Path("out")
@@ -489,9 +490,109 @@ def report_relate(out_dir: Path) -> dict:
     }
 
 
+COST = 0.001  # 0.1% of the amount traded each time the weight changes (assumption)
+TARGET = 0.15
+
+
+def _vt(r: pd.Series, target: float):
+    """Vol-target r with EWMA forecasts (no leverage) and its same-exposure static benchmark."""
+    vol = ewma_vol(np.log(1 + r))
+    vt = apply_weights(r, vol_target_weights(vol, target), RF, COST)
+    return vt, static_match(r, vt["weight"], RF, COST)
+
+
+def report_target(out_dir: Path) -> dict:
+    """Vol targeting on NIFTY (no leverage) vs buy-and-hold and a same-exposure static mix."""
+    r = load("adj_close", [INDEX]).pct_change().dropna()[INDEX]
+    hold = apply_weights(r, pd.Series(1.0, index=r.index), RF, COST)
+    vt, static = _vt(r, TARGET)
+    vix = load("close", [VIX])[VIX].reindex(r.index).ffill() / 100
+    rule_w = pd.Series(np.where(rolling_percentile(vix) > 0.8, 0.5, 1.0), index=r.index)
+    rule = apply_weights(r, rule_w, RF, COST)
+    table = compare({"buy and hold": hold, f"vol target {TARGET:.0%}": vt,
+                     "static, same exposure": static, "VIX rule (halve > 80th pct)": rule}, RF)
+    colors = {"buy and hold": plots.MUTED, f"vol target {TARGET:.0%}": plots.SERIES[0],
+              "static, same exposure": plots.TEXT}
+
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(9, 5.4), sharex=True,
+                                  gridspec_kw={"height_ratios": [2, 1]})
+    curves = {}
+    for name, df in (("buy and hold", hold), ("static, same exposure", static),
+                     (f"vol target {TARGET:.0%}", vt)):  # vol target drawn last, on top
+        wealth = (1 + df["return"]).cumprod() * 1e5
+        ax.plot(wealth.index, wealth / 1e5, color=colors[name], lw=1.8)
+        curves[name] = wealth / 1e5
+        dd = wealth / wealth.cummax() - 1
+        ax2.plot(dd.index, dd * 100, color=colors[name], lw=1.2)
+    _label_ends(ax, curves, colors, gap=0.25)
+    ax.set_ylabel("₹ lakh (started with 1)")
+    ax2.set_ylabel("drawdown, %")
+    ax.set_title("Vol targeting cut the 2020 drawdown but lagged on growth (NIFTY, after costs)")
+    plots.save(fig, out_dir, "vt_equity")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    mix = []
+    for w in np.linspace(0, 1, 21):
+        m = apply_weights(r, pd.Series(w, index=r.index), RF, COST, start_weight=w)["return"]
+        mix.append((m.std() * np.sqrt(252) * 100, (cagr(m)) * 100))
+    mx = np.array(mix)
+    ax.plot(mx[:, 0], mx[:, 1], color=plots.TEXT, lw=1.6)
+    ax.annotate("NIFTY + cash, fixed mix", (mx[-4, 0], mx[-4, 1]), xytext=(-10, 10),
+                textcoords="offset points", color=plots.TEXT_2, fontsize=9, ha="right")
+    pts = []
+    for tgt in (0.08, 0.10, 0.12, 0.15, 0.18, 0.20):
+        v, _ = _vt(r, tgt)
+        x = v["return"]
+        pts.append((x.std() * np.sqrt(252) * 100, cagr(x) * 100, tgt))
+    pts = np.array(pts)
+    ax.plot(pts[:, 0], pts[:, 1], "o-", color=plots.SERIES[0], ms=7)
+    for vx, vy, tgt in pts:
+        ax.annotate(f"{tgt:.0%}", (vx, vy), xytext=(0, -14), textcoords="offset points",
+                    ha="center", color=plots.SERIES[0], fontsize=8)
+    ax.annotate("vol targets", (pts[0, 0], pts[0, 1]), xytext=(-8, 6), textcoords="offset points",
+                color=plots.SERIES[0], fontsize=9, ha="right")
+    ax.set_xlabel("volatility, % a year")
+    ax.set_ylabel("growth, % a year (after costs)")
+    ax.set_title("At every risk level, a fixed mix earned more than vol targeting")
+    plots.save(fig, out_dir, "vt_frontier")
+
+    rows = {}
+    for sym in [INDEX] + SYMBOLS:
+        rs = load("adj_close", [sym]).pct_change().dropna()[sym]
+        v, st = _vt(rs, float(rs.std() * np.sqrt(252) * 0.9))
+        rows[sym] = {"vt Sharpe": sharpe(v["return"], RF),
+                     "static Sharpe": sharpe(st["return"], RF),
+                     "vt DD": max_drawdown(v["return"]),
+                     "static DD": max_drawdown(st["return"])}
+    per = pd.DataFrame(rows).T
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.6), sharey=True)
+    y = np.arange(len(per))
+    for ax, (a, b, title) in zip(axes, (("vt Sharpe", "static Sharpe", "Sharpe ratio"),
+                                        ("vt DD", "static DD", "max drawdown, %")), strict=True):
+        scale = 100 if "DD" in a else 1
+        ax.barh(y - 0.2, per[a] * scale, height=0.38, color=plots.SERIES[0], label="vol target")
+        ax.barh(y + 0.2, per[b] * scale, height=0.38, color=plots.MUTED,
+                label="static, same exposure")
+        ax.set_title(title, fontsize=10, fontweight="normal", color=plots.TEXT_2)
+        ax.grid(axis="y", visible=False)
+    axes[0].set_yticks(y, per.index)
+    axes[0].invert_yaxis()
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=2,
+               bbox_to_anchor=(0.5, -0.04))
+    fig.suptitle("Every series: smaller drawdowns; Sharpe lower in 4 of 6", x=0.06, ha="left",
+                 fontsize=13, fontweight="semibold", color=plots.TEXT)
+    plots.save(fig, out_dir, "vt_stocks")
+
+    return {
+        "NIFTY table": table.round(3).to_dict("index"),
+        "per series (target = 0.9 x own vol)": per.round(3).to_dict("index"),
+        "frontier vol-target points (vol, cagr, target)": pts.round(2).tolist(),
+    }
+
+
 REPORTS = {"rolling": report_rolling, "estimators": report_estimators, "forecast": report_forecast,
            "implied": report_implied, "perf": report_perf,
-           "relate": report_relate}
+           "relate": report_relate, "target": report_target}
 
 
 def main(argv: list[str] | None = None) -> int:
