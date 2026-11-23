@@ -75,11 +75,10 @@ def rolling_figure(table: pd.DataFrame, windows=(20, 60, 252)) -> go.Figure:
     """Rolling annualised volatility for each symbol and window, picked by dropdown."""
     fig = go.Figure()
     prices = table["adj_close"]
-    r = log_returns(prices)
     symbols = list(prices.columns)
     for i, sym in enumerate(symbols):
         for w in windows:
-            _line(fig, rolling_vol(r[sym].dropna(), w), f"{w}-day",
+            _line(fig, rolling_vol(log_returns(prices[sym].dropna()), w), f"{w}-day",
                   WINDOW_COLORS.get(w, plots.MUTED), i == 0)
     _symbol_dropdown(fig, symbols, len(windows))
     return _layout(fig, "annualised volatility, %")
@@ -140,7 +139,8 @@ MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 
 def perf_table(table: pd.DataFrame) -> str:
     """Risk-adjusted summary as an HTML table, one row per symbol."""
-    r = table["adj_close"].pct_change().iloc[1:]
+    r = pd.DataFrame({c: table["adj_close"][c].dropna().pct_change().iloc[1:]
+                      for c in table["adj_close"].columns})
     s = summary(r, RF)
     lo, hi = s["Sharpe"] - 1.96 * s["Sharpe SE"], s["Sharpe"] + 1.96 * s["Sharpe SE"]
     head = ["", "CAGR", "Volatility", "Sharpe", "Sharpe 95% range", "Sortino", "Max drawdown",
@@ -179,7 +179,8 @@ def monthly_figure(table: pd.DataFrame) -> go.Figure:
 
 def relate_figure(table: pd.DataFrame) -> go.Figure:
     """One-year rolling beta and correlation of each stock against NIFTY."""
-    r = table["adj_close"].pct_change().iloc[1:]
+    adj = table["adj_close"]
+    r = pd.DataFrame({c: adj[c].dropna().pct_change().iloc[1:] for c in adj.columns})
     stocks = [c for c in r.columns if c != INDEX]
     fig = go.Figure()
     for i, sym in enumerate(stocks):
@@ -201,11 +202,11 @@ COST = 0.001  # 0.1% of the amount traded (assumption)
 
 def target_figure(table: pd.DataFrame) -> go.Figure:
     """Growth of ₹1 lakh: vol targeting (no leverage) vs a fixed mix with the same exposure."""
-    r = table["adj_close"].pct_change().iloc[1:]
-    symbols = list(r.columns)
+    adj = table["adj_close"]
+    symbols = list(adj.columns)
     fig = go.Figure()
     for i, sym in enumerate(symbols):
-        x = r[sym].dropna()
+        x = adj[sym].dropna().pct_change().iloc[1:]
         target = float(x.std() * (252**0.5) * 0.9)
         vt = apply_weights(x, vol_target_weights(ewma_vol(np.log1p(x)), target), RF, COST)
         st = static_match(x, vt["weight"], RF, COST)

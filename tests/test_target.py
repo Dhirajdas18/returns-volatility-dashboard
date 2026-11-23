@@ -60,3 +60,11 @@ def test_compare_table():
     r = pd.Series(rng.normal(0.0004, 0.01, 800), index=_idx(800))
     table = compare({"hold": apply_weights(r, pd.Series(1.0, index=r.index))}, rf=0.0)
     assert {"CAGR", "Vol", "Sharpe", "Max DD", "Avg weight", "Turnover / yr"} <= set(table.columns)
+
+
+def test_vol_target_with_no_leverage_never_holds_more_than_everything():
+    rng = np.random.default_rng(4)
+    r = pd.Series(rng.normal(0, 0.01, 500), index=_idx(500))
+    vol = r.rolling(20).std() * np.sqrt(252)
+    out = apply_weights(r, vol_target_weights(vol, 0.30, cap=1.0))
+    assert out["weight"].max() <= 1.0 and out["weight"].min() > 0

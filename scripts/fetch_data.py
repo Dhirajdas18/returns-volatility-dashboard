@@ -16,13 +16,18 @@ from rv.data import (
 
 def main() -> None:
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else DATA_PATH
-    df = fetch_yfinance()
-    for _ in range(3):  # Yahoo occasionally drops a ticker; retry before giving up
-        if not missing_symbols(df):
+    df, missing = None, ["everything"]
+    for attempt in range(4):  # Yahoo occasionally drops a ticker or errors; retry before giving up
+        if attempt:
+            time.sleep(5)
+        try:
+            df = fetch_yfinance()
+        except Exception as exc:  # network or Yahoo error: retry
+            print(f"  download attempt {attempt + 1} failed: {exc}")
+            continue
+        if not (missing := missing_symbols(df)):
             break
-        time.sleep(5)
-        df = fetch_yfinance()
-    if missing := missing_symbols(df):
+    if df is None or missing:
         sys.exit(f"download failed for {missing}; not writing an incomplete table")
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out)

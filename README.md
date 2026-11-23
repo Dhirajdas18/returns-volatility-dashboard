@@ -81,10 +81,11 @@ risk more than over-forecasting.
 - **The 20-day window ranks last** on average (up to 2.2× the best error, for ITC): it reacts fast but its
   noise costs more than its speed gains. A slow 252-day window does surprisingly well for stocks whose
   shocks fade within days (INFY, ITC), because next month usually looks like the long run.
-- **At a 5-day horizon the field tightens:** Yang-Zhang, GARCH and EWMA all land within 10% of the best,
-  while the 20-day window is 27% worse on average.
+- **At a 5-day horizon the field tightens:** GARCH, Yang-Zhang and EWMA average 1.04, 1.07 and 1.10 times
+  the best error, while the 20-day and 252-day windows are both about 27% worse.
 - **Nothing forecast the 2020 crash.** On 25 Feb 2020 every estimator said 13–16%; NIFTY's next month
-  delivered 80%. In 2020 alone the fast 20-day window scored best; once the calm returned, all of them stayed
+  delivered 80%. For NIFTY in 2020 alone the fast 20-day window scored best (for the stocks the winner varied); once
+  the calm returned, all of them stayed
   too high for weeks. Forecasts describe risk, not surprises; a margin of safety is still needed.
 
 ### 4. India VIX overprices risk most days, yet forecasts best; high VIX was not a sell signal
@@ -107,10 +108,10 @@ risk more than over-forecasting.
 <a href="docs/img/vix_regime.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/vix_regime.png"><img src="docs/img/vix_regime.gif" alt="NIFTY next-month return after high-VIX days vs other days" width="720"></picture></a>
 
 - **High VIX was followed by better months, not worse.** A common rule cuts exposure when VIX is above its
-  2-year 80th percentile. On non-overlapping months since 2015, NIFTY's next month after those days had a
-  median return of +2.0% (range across start days +0.6% to +3.3%) vs +0.5% otherwise. That held for 20 of
-  21 possible start days, and in both 2015–2019 and 2020–2026.
-- The sample is small (26 high-VIX months), so this is not proof that high VIX is bullish. But there is no
+  2-year 80th percentile. On non-overlapping months since 2015, NIFTY's average next-month return after those days
+  was +2.0% vs +0.5% otherwise (median across the 21 possible start days; range +0.6% to +3.3%). High VIX
+  came out ahead on 20 of 21 start days overall, and on 16 of 21 within each of 2015–2019 and 2020–2026.
+- The sample is small (19–26 high-VIX months, depending on the start day), so this is not proof that high VIX is bullish. But there is no
   sign it warns of losses. The worst month in the data, the 2020 crash, began on 19 Feb 2020, when VIX
   was at only its 30th percentile.
 
@@ -125,8 +126,8 @@ risk more than over-forecasting.
   best Sharpe ratio of the six (0.75). Against a 6.5% T-bill rate it drops to 0.34 and ranks fifth,
   because its edge over cash is small and its low volatility no longer flatters it.
 - **Every Sharpe ratio's 95% range includes zero** (standard error about 0.27, allowing for fat tails).
-  RELIANCE leads at 0.46, but its range is −0.08 to +0.99, and it overlaps every other stock's. Fourteen
-  years can't separate them from each other, or from T-bills.
+  RELIANCE leads at 0.46, but its range is −0.08 to +0.99. With uncertainty this wide, 14 years can't
+  show that any of them beat T-bills, and the gaps between stocks (0.14 to 0.46) are within that noise.
 - **One year says almost nothing.** NIFTY's rolling one-year Sharpe ran from −1.7 (Feb 2016) to +2.8
   (Oct 2021) and was below zero 34% of the time, around a long-run value of 0.34.
 - **The metrics mostly agree on the extremes and disagree in the middle:** RELIANCE is first and ITC
@@ -135,9 +136,10 @@ risk more than over-forecasting.
 
 <a href="docs/img/monthly_heatmap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/monthly_heatmap.png"><img src="docs/img/monthly_heatmap.gif" alt="NIFTY monthly returns heatmap, 2013-2026" width="720"></picture></a>
 
-- NIFTY rose in 12 of 14 calendar years, yet **every calendar month has losing years**. January was up in
-  only 4 of 14 years and July in 11, but with 14 observations per month that proves little. If every month
-  were a pure coin flip, at least one of the 12 would look this lopsided 77% of the time. It is not a
+- NIFTY rose in 12 of 14 calendar years (2026 to date), yet **every calendar month has losing years**.
+  January was up in only 4 of 14 years and July in 11, but with 13–14 observations per month that proves
+  little. If every month were a coin flip with NIFTY's overall 57% chance of rising, at least one of the 12
+  would look as lopsided as January (4 or fewer, or 10 or more, up years) 97% of the time. It is not a
   pattern to trade.
 
 ### 6. Beta is not volatility, wanders year to year, and correlation jumps in stressed markets
@@ -155,8 +157,8 @@ risk more than over-forecasting.
   but, at 0.73 correlation, has a beta of 1.04.
 - **One-year betas wander:** TCS ran from 0.22 to 1.05 and INFY from 0.30 to 1.42.
 - **Forecasting next year's beta** (checked monthly, same dates for every window): longer look-backs win,
-  with 3 years best (average error 0.16). Shrinking towards 1 (Blume) fixes most of a short window's
-  error (3 months: 0.23 → 0.19) but slightly hurts a 2–3 year estimate. Even the best forecast is off by
+  with 3 years best (average error 0.16). Shrinking towards 1 (Blume) closes about half the gap for a
+  short window (3 months: 0.23 → 0.19, against 0.16 at best) but slightly hurts a 2–3 year estimate. Even the best forecast is off by
   about ±0.16, because beta itself drifts.
 - **Volatility regimes** (NIFTY's EWMA volatility in the bottom, middle or top third of its past two years)
   are sticky day to day: 94% of calm and stressed days are followed by the same regime. But they flicker at
@@ -179,10 +181,11 @@ The fair benchmark is a **fixed mix with the same average exposure**, because ho
 risk by itself. Scaling exposure uniformly never changes the excess Sharpe ratio, so any difference comes
 from timing alone.
 
-- **NIFTY at a 15% target** (target fixed in advance, just under NIFTY's 16% long-run volatility):
-  one-year volatility stayed between 9% and 16% (fixed mix: 8–30%), and the worst drawdown fell from 36%
-  to 23%. But growth fell from 11.1% to 9.2% a year, and the Sharpe ratio from 0.35 to 0.24. That held in
-  both halves of the sample and at zero cost, so trading costs are not the cause.
+- **NIFTY at a 15% target** (set just under NIFTY's 16% long-run volatility and not tuned; that 16% is a
+  full-sample figure): one-year volatility stayed between 9% and 16% (fixed mix: 8–30%), and the worst
+  drawdown fell from 36% to 23%. But growth fell from 10.8% to 8.9% a year, and the Sharpe ratio from 0.34
+  to 0.24. The gap held in both halves (0.23 vs 0.35, 0.24 vs 0.35) and at zero cost (0.25 vs 0.34), so
+  trading costs are not the cause.
 - **At every risk level a fixed mix earned more** (right chart): every target from 8% to 20% sits below
   the fixed-mix line.
 - **The protection is narrow.** The 2020 crash was the one big win (−23% vs −36%). In 12 of 14 calendar
@@ -224,7 +227,14 @@ uv run pytest
 - `src/rv/relate.py`: beta, correlation, beta forecast test, volatility regimes and their persistence.
 - `src/rv/target.py`: volatility targeting with next-day execution, cash yield and trading costs.
 - `src/rv/site.py`: the dashboard, one static Plotly page; no server, no committed data.
-- `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>`.
+- `src/rv/reports.py`: README findings, reproducible with `rv-report <topic>` (every number quoted
+  above is printed by its report).
+- Conventions: volatility is annualised with √252; growth rates (CAGR) use calendar time, because NSE
+  data has about 246 trading days a year. The numbers above use data to 23 Nov 2026; the dashboard
+  refreshes weekly.
+- Data caveat: Yahoo's adjusted prices may not fully adjust ITC for the ITC Hotels demerger (6 Jan 2025,
+  a −4.7% adjusted day against a −1.8% opening gap; unconfirmed). It would cost ITC about 0.35 points of
+  CAGR and doesn't change any ranking.
 - Charts: one validated palette; README charts are animated GIFs with a static fallback for
   reduced-motion users.
 

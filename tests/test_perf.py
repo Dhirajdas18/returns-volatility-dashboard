@@ -45,11 +45,10 @@ def test_max_drawdown_and_calmar():
     assert np.isclose(calmar(prices_r), cagr(prices_r) / 0.5)
 
 
-def test_cagr_of_doubling_in_two_years():
-    idx = pd.bdate_range("2020-01-01", periods=505)
-    r = pd.Series(2 ** (1 / 504) - 1, index=idx)
+def test_cagr_without_dates_assumes_252_rows_a_year():
+    r = pd.Series(2 ** (1 / 504) - 1, index=range(505))  # no dates: 505 rows ~ 2 years
     r.iloc[0] = 0.0
-    assert abs(cagr(r) - (2 ** (252 / 504) - 1)) < 0.01
+    assert abs(cagr(r) - (2 ** (252 / 505) - 1)) < 1e-9
 
 
 def test_rolling_sharpe_and_monthly_table_shapes():
@@ -66,3 +65,11 @@ def test_summary_has_one_row_per_column():
     out = summary(df, rf=0.0)
     assert list(out.index) == ["A", "B"]
     assert {"CAGR", "Vol", "Sharpe", "Sharpe SE", "Sortino", "Max DD", "Calmar"} <= set(out.columns)
+
+
+def test_cagr_uses_calendar_time_when_dates_are_known():
+    idx = pd.bdate_range("2020-01-01", "2022-01-01")  # about 2 calendar years, ~523 rows
+    r = pd.Series(0.0, index=idx)
+    r.iloc[-1] = 1.0  # wealth doubles once
+    years = (idx[-1] - idx[0]).days / 365.25
+    assert abs(cagr(r) - (2 ** (1 / years) - 1)) < 1e-9

@@ -104,3 +104,17 @@ def test_target_figure_vol_target_vs_static_per_symbol():
     names = [t.name for t in fig.data[:2]]
     assert names == ["vol target (0.9× own vol)", "fixed mix, same exposure"]
     assert len(fig.data) == 4
+
+
+def test_dashboard_numbers_match_reports_when_another_symbol_has_gaps():
+    from rv.perf import summary
+
+    table = _table()
+    col = ("adj_close", "NIFTY")
+    table.loc[table.index[105:], col] *= 1.5  # NIFTY jumps 50% across a gap...
+    table.loc[table.index[100:105], col] = np.nan  # ...of days it didn't trade but stocks did
+    html = perf_table(table)
+    nifty = table["adj_close"]["NIFTY"].dropna().pct_change().dropna()
+    expected = summary(nifty.to_frame(), 0.065).loc["NIFTY", "CAGR"]
+    row = html.split('<th scope="row">NIFTY</th>')[1].split("</tr>")[0].replace("\u2212", "-")
+    assert f"{expected:.1%}" in row

@@ -40,8 +40,12 @@ def sortino(r: pd.Series, rf: float = 0.0) -> float:
 
 
 def cagr(r: pd.Series) -> float:
-    """Compound annual growth rate implied by the daily returns."""
+    """Compound annual growth rate. Uses calendar time when the index has dates (NSE data has
+    about 246 rows a year, so assuming 252 would overstate growth); otherwise 252 rows a year."""
     growth = float((1 + r).prod())
+    if isinstance(r.index, pd.DatetimeIndex) and len(r) > 1:
+        years = (r.index[-1] - r.index[0]).days / 365.25
+        return growth ** (1 / years) - 1
     return growth ** (TRADING_DAYS / len(r)) - 1
 
 

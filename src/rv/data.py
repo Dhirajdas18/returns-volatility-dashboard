@@ -31,10 +31,14 @@ def fetch_yfinance(start: str = START, end: str | None = None) -> pd.DataFrame:
     return raw.sort_index(axis=1)
 
 
-def missing_symbols(table: pd.DataFrame) -> list[str]:
-    """Symbols whose adjusted close is entirely empty (a failed download)."""
-    adj = table["adj_close"]
-    return [str(c) for c in adj.columns if adj[c].isna().all()]
+def missing_symbols(table: pd.DataFrame, expected: list[str] | None = None) -> list[str]:
+    """Symbols with no adjusted close at all: an all-empty column or one Yahoo left out.
+
+    `expected` defaults to every symbol we download (the stocks, NIFTY and India VIX).
+    """
+    adj = table["adj_close"] if "adj_close" in table.columns.get_level_values(0) else pd.DataFrame()
+    want = expected if expected is not None else SYMBOLS + [INDEX, VIX]
+    return [s for s in want if s not in adj.columns or adj[s].isna().all()]
 
 
 def load_table(symbols: list[str] | None = None, path: Path = DATA_PATH) -> pd.DataFrame:

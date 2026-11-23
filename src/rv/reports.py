@@ -25,7 +25,7 @@ from rv.relate import (
 )
 from rv.returns import log_returns
 from rv.target import apply_weights, compare, static_match, vol_target_weights
-from rv.vol import ewma_vol, garch_fit, garman_klass, rolling_vol, yang_zhang
+from rv.vol import ewma_vol, garch_fit, garman_klass, parkinson, rolling_vol, yang_zhang
 
 OUT = Path("out")
 WINDOWS = {20: plots.BLUE_RAMP[2], 60: plots.BLUE_RAMP[4], 252: plots.BLUE_RAMP[6]}
@@ -138,6 +138,7 @@ def report_estimators(out_dir: Path) -> dict:
                                   .iloc[-1]),
             "Yang-Zhang": float(yang_zhang(o["open"], o["high"], o["low"], o["close"], n)
                                 .iloc[-1]),
+            "Parkinson": float(parkinson(o["high"], o["low"], n).iloc[-1]),
             "overnight share": float(np.log(o["open"] / o["close"].shift(1)).var()
                                      / np.log(o["close"]).diff().var()),
         }
@@ -223,12 +224,35 @@ def report_forecast(out_dir: Path) -> dict:
         yearly = loss.groupby(loss.index.year).mean()
         for c in yearly.columns.drop("GARCH"):
             wins.setdefault(c, []).extend((yearly["GARCH"] < yearly[c]).tolist())
+    board5 = scoreboard(table, SPLIT, horizon=5)
+    best_2020 = {}
+    for sym in table["adj_close"].columns:
+        rs = log_returns(table["adj_close"][sym].dropna())
+        sc = evaluate(forecasts(rs, SPLIT, _ohlc(sym)), realised_forward(rs), SPLIT, "2020-12-31")
+        best_2020[sym] = sc.index[0]
+    feb = pd.Timestamp("2020-02-25")
     return {
+        "5-day horizon, mean vs best": board5.mean(axis=1).round(3).to_dict(),
+        "best in 2020 alone": best_2020,
+        "NIFTY forecasts on 2020-02-25": {k: _pct(v) for k, v in fc.loc[feb].items()},
+        "NIFTY realised next month from 2020-02-25": _pct(real.loc[feb]),
         "average rank order": list(board.index),
         "scoreboard": board.round(2).to_dict("index"),
         "GARCH wins (symbol-years)": {c: f"{sum(w)}/{len(w)}" for c, w in wins.items()},
         "test months (independent)": f"~{len(real.loc[SPLIT:].dropna()) // 21} per symbol",
     }
+
+
+def _vix_halves(prices: pd.Series, pct: pd.Series) -> dict:
+    out = {}
+    for name, sl in (("2015-19", slice(None, "2019-12-31")),
+                     ("2020-26", slice("2020-01-01", None))):
+        runs = [regime_returns(prices.loc[sl], pct.loc[sl], offset=o) for o in range(21)]
+        hi = [x.loc["high", "mean return"] for x in runs]
+        no = [x.loc["normal", "mean return"] for x in runs]
+        wins = sum(h > n for h, n in zip(hi, no, strict=True))
+        out[name] = f"{np.median(hi):+.2%} / {np.median(no):+.2%}, high ahead {wins}/21"
+    return out
 
 
 def report_implied(out_dir: Path) -> dict:
@@ -316,9 +340,12 @@ def report_implied(out_dir: Path) -> dict:
         "train ratio realised/VIX": round(scale, 3),
         "QLIKE 2020-26": scores["QLIKE"].round(3).to_dict(),
         "bias 2020-26 (vol pts)": (scores["bias"] * 100).round(1).to_dict(),
-        "next-month return, median over 21 offsets": {g: f"{med[g]:+.2%} (range {lo[g]:+.2%} to "
-                                                      f"{hi[g]:+.2%})" for g in med},
+        "average next-month return (median across 21 start days)": {
+            g: f"{med[g]:+.2%} (range {lo[g]:+.2%} to {hi[g]:+.2%})" for g in med},
         "high beat normal": f"{hi_wins}/21 offsets",
+        "high-VIX months across offsets": f"{min(x.loc['high', 'months'] for x in runs)}–"
+                                          f"{max(x.loc['high', 'months'] for x in runs)}",
+        "by half (median avg high / normal, wins)": _vix_halves(prices, pct),
         "worst month start": f"{worst_start:%Y-%m-%d}, VIX percentile then "
                              f"{pct.asof(worst_start):.2f}",
     }
@@ -383,7 +410,15 @@ def report_perf(out_dir: Path) -> dict:
     plots.save(fig, out_dir, "monthly_heatmap")
 
     up = (m.iloc[:, :12] > 0).mean()
+    counts = (m.iloc[:, :12] > 0).sum()
+    n_years = int(m.iloc[:, :12].notna().sum().max())
+    p_up = float((m.iloc[:, :12] > 0).sum().sum() / m.iloc[:, :12].notna().sum().sum())
+    extreme = int(counts.min())  # as lopsided as the weakest month (January: 4 up of 14)
+    sims = np.random.default_rng(0).binomial(n_years, p_up, (100_000, 12))
+    chance = float(((sims <= extreme) | (sims >= n_years - extreme)).any(axis=1).mean())
     return {
+        "coin-flip chance some month is as lopsided": f"{chance:.0%} (≤{extreme} or "
+                                                       f"≥{n_years - extreme} up of {n_years})",
         f"summary at rf {RF:.1%}": at_rf.round(3).to_dict("index"),
         "Sharpe at rf 0%": at_zero["Sharpe"].round(2).to_dict(),
         "95% Sharpe range": {k: f"{v.Sharpe - 1.96 * v['Sharpe SE']:+.2f} to "
@@ -583,7 +618,30 @@ def report_target(out_dir: Path) -> dict:
                  fontsize=13, fontweight="semibold", color=plots.TEXT)
     plots.save(fig, out_dir, "vt_stocks")
 
+    halves = {}
+    for name, sl in (("2013-19", slice(None, "2019-12-31")),
+                     ("2020-26", slice("2020-01-01", None))):
+        halves[name] = (f"{sharpe(vt['return'].loc[sl], RF):.2f} vs "
+                        f"{sharpe(static['return'].loc[sl], RF):.2f}")
+    vol0 = ewma_vol(np.log(1 + r))
+    vt0 = apply_weights(r, vol_target_weights(vol0, TARGET), RF, 0.0)
+    st0 = static_match(r, vt0["weight"], RF, 0.0)
+
+    def dd(x):
+        w = (1 + x).cumprod()
+        return w / w.cummax() - 1
+
+    dv, ds = dd(vt["return"]), dd(static["return"])
+    yv, ys = dv.groupby(dv.index.year).min(), ds.groupby(ds.index.year).min()
     return {
+        "Sharpe by half (vt vs static)": halves,
+        "Sharpe at zero cost (vt vs static)": f"{sharpe(vt0['return'], RF):.3f} vs "
+                                              f"{sharpe(st0['return'], RF):.3f}",
+        "years vt worst drawdown same or deeper": f"{int((yv <= ys + 1e-9).sum())}/{len(yv)}",
+        "mean drawdown vt / static": f"{dv.mean():.1%} / {ds.mean():.1%}",
+        "turnover VIX rule / vt": round(
+            table.loc["VIX rule (halve > 80th pct)", "Turnover / yr"]
+            / table.loc[f"vol target {TARGET:.0%}", "Turnover / yr"], 2),
         "NIFTY table": table.round(3).to_dict("index"),
         "per series (target = 0.9 x own vol)": per.round(3).to_dict("index"),
         "frontier vol-target points (vol, cagr, target)": pts.round(2).tolist(),

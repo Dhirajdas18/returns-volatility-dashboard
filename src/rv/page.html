@@ -124,7 +124,7 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {
     const [x0, x1] = (gd.layout.xaxis.range || []).map(String);
     let lo = Infinity, hi = -Infinity;
     gd.data.forEach((t) => {
-      if (t.visible === false || t.type !== "scatter") return;
+      if (t.visible === false || t.visible === "legendonly" || t.type !== "scatter") return;
       for (let i = 0; i < t.x.length; i++) {
         if (x0 && (t.x[i] < x0.slice(0, 10) || t.x[i] > x1.slice(0, 10))) continue;
         lo = Math.min(lo, t.y[i]); hi = Math.max(hi, t.y[i]);
@@ -133,7 +133,8 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {
     if (!isFinite(lo)) return;
     const pad = (hi - lo) * 0.08 || 1;
     busy = true;
-    Plotly.relayout(gd, {"yaxis.range": [Math.max(0, lo - pad), hi + pad]})
+    const floor = lo >= 0 ? Math.max(0, lo - pad) : lo - pad;  // don't clip real negatives
+    Plotly.relayout(gd, {"yaxis.range": [floor, hi + pad]})
       .then(() => { busy = false; });
   };
   // Phones: legend below the plot so it can't collide with the symbol menu and zoom buttons.
@@ -143,8 +144,14 @@ document.querySelectorAll(".plotly-graph-div").forEach((gd) => {
     : { "legend.y": original.layout.legend.y, "legend.yanchor": "bottom", "margin.b": 40 });
   narrow.addEventListener("change", place);
   if (narrow.matches) place();
-  gd.on("plotly_relayout", (e) => { if (!("yaxis.range" in e)) fit(); });
+  // Refit after x changes only; a box zoom that sets y (yaxis.range[0]/[1]) is the user's choice.
+  gd.on("plotly_relayout", (e) => {
+    const keys = Object.keys(e);
+    if (keys.some((k) => k.startsWith("yaxis.range"))) return;
+    if (keys.some((k) => k.startsWith("xaxis") || k === "autosize")) fit();
+  });
   gd.on("plotly_update", fit);
+  gd.on("plotly_restyle", fit);  // legend clicks show or hide traces
   (media.matches ? theme() : Promise.resolve()).then(fit);
 });
 

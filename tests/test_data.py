@@ -58,4 +58,12 @@ def test_missing_symbols_lists_symbols_with_no_prices():
     cols = pd.MultiIndex.from_tuples([("adj_close", "ITC"), ("adj_close", "TCS")],
                                      names=["field", "symbol"])
     df = pd.DataFrame([[1.0, None], [2.0, None]], columns=cols)
-    assert missing_symbols(df) == ["TCS"]
+    assert missing_symbols(df, expected=["ITC", "TCS"]) == ["TCS"]
+
+
+def test_missing_symbols_also_catches_columns_yahoo_left_out():
+    from rv.data import missing_symbols
+
+    cols = pd.MultiIndex.from_tuples([("adj_close", "ITC")], names=["field", "symbol"])
+    df = pd.DataFrame([[1.0], [2.0]], columns=cols)
+    assert missing_symbols(df, expected=["ITC", "TCS"]) == ["TCS"]
